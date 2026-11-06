@@ -4,7 +4,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
@@ -20,9 +20,14 @@ jobs:
       - name: Set active Xcode
         run: |
           XCODE_VERSION=$(python3 -c 'import json;print(json.load(open("versions.json"))["xcode"])')
-          echo "Нужен Xcode $XCODE_VERSION"
+          echo "versions.json требует Xcode $XCODE_VERSION"
           ls /Applications | grep -i xcode
-          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          if [ -d "/Applications/Xcode_$XCODE_VERSION.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_$XCODE_VERSION.app/Contents/Developer"
+          else
+            echo "Точной версии нет, остаётся Xcode по умолчанию"
+          fi
+          xcodebuild -version
 
       - name: Create canonical source directory
         run: |
@@ -48,6 +53,7 @@ jobs:
           python3 build-system/Make/ImportCertificates.py \
             --path build-system/fake-codesigning/certs
           python3 -u build-system/Make/Make.py \
+            --overrideXcodeVersion \
             --cacheDir="$HOME/telegram-bazel-cache" \
             build \
             --configurationPath=my-config.json \
