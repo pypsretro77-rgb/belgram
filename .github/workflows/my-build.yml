@@ -47,7 +47,6 @@ jobs:
           c = json.load(open("my-config.json"))
           c["api_id"] = os.environ["TG_API_ID"]
           c["api_hash"] = os.environ["TG_API_HASH"]
-          c["bundle_id"] = "org.a7k2m9x4.mygram"
           json.dump(c, open("my-config.json", "w"), indent=2)
           EOF
           python3 build-system/Make/ImportCertificates.py \
