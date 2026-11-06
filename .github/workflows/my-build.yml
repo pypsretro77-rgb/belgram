@@ -51,12 +51,16 @@ jobs:
           EOF
           python3 build-system/Make/ImportCertificates.py \
             --path build-system/fake-codesigning/certs
+          echo "=== Доступные флаги команды build ==="
+          python3 build-system/Make/Make.py build --help || true
           python3 -u build-system/Make/Make.py \
             --overrideXcodeVersion \
             --cacheDir="$HOME/telegram-bazel-cache" \
             build \
             --configurationPath=my-config.json \
             --codesigningInformationPath=build-system/fake-codesigning \
+            --disableExtensions \
+            --disableProvisioningProfiles \
             --buildNumber=100001 \
             --configuration=release_arm64
 
