@@ -35,6 +35,22 @@ jobs:
           cp -R "$GITHUB_WORKSPACE" /Users/Shared/
           mv /Users/Shared/$(basename "$GITHUB_WORKSPACE") /Users/Shared/telegram-ios
 
+      - name: Extend expired fake profiles
+        working-directory: /Users/Shared/telegram-ios
+        run: |
+          ls build-system/fake-codesigning/profiles | head -30
+          python3 - <<'EOF'
+          import glob, re
+          n = 0
+          for p in glob.glob("build-system/fake-codesigning/profiles/*.mobileprovision"):
+              data = open(p, "rb").read()
+              new = re.sub(rb"(<key>ExpirationDate</key>\s*<date>)\d{4}(-)", rb"\g<1>2036\g<2>", data)
+              if new != data:
+                  open(p, "wb").write(new)
+                  n += 1
+          print("профилей изменено:", n)
+          EOF
+
       - name: Build
         working-directory: /Users/Shared/telegram-ios
         env:
@@ -51,16 +67,12 @@ jobs:
           EOF
           python3 build-system/Make/ImportCertificates.py \
             --path build-system/fake-codesigning/certs
-          echo "=== Доступные флаги команды build ==="
-          python3 build-system/Make/Make.py build --help || true
           python3 -u build-system/Make/Make.py \
             --overrideXcodeVersion \
             --cacheDir="$HOME/telegram-bazel-cache" \
             build \
             --configurationPath=my-config.json \
             --codesigningInformationPath=build-system/fake-codesigning \
-            --disableExtensions \
-            --disableProvisioningProfiles \
             --buildNumber=100001 \
             --configuration=release_arm64
 
