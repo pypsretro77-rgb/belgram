@@ -7,10 +7,15 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+            - uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+
+      - name: Fetch submodules from upstream
+        run: |
+          git config --global url."https://github.com/TelegramMessenger/".insteadOf "https://github.com/${{ github.repository_owner }}/"
+          git submodule sync --recursive
+          git submodule update --init --recursive --jobs 8
 
       - name: Set active Xcode
         run: |
