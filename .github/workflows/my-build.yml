@@ -1,0 +1,61 @@
+name: My Telegram build
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set active Xcode
+        run: |
+          XCODE_VERSION=$(python3 -c 'import json;print(json.load(open("versions.json"))["xcode"])')
+          echo "Нужен Xcode $XCODE_VERSION"
+          ls /Applications | grep -i xcode
+          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+
+      - name: Create canonical source directory
+        run: |
+          sudo mkdir -p /Users/Shared
+          cp -R "$GITHUB_WORKSPACE" /Users/Shared/
+          mv /Users/Shared/$(basename "$GITHUB_WORKSPACE") /Users/Shared/telegram-ios
+
+      - name: Build
+        working-directory: /Users/Shared/telegram-ios
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          cp build-system/appstore-configuration.json my-config.json
+          python3 - <<'EOF'
+          import json, os
+          c = json.load(open("my-config.json"))
+          c["api_id"] = os.environ["TG_API_ID"]
+          c["api_hash"] = os.environ["TG_API_HASH"]
+          c["bundle_id"] = "org.a7k2m9x4.mygram"
+          json.dump(c, open("my-config.json", "w"), indent=2)
+          EOF
+          python3 build-system/Make/ImportCertificates.py \
+            --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath=my-config.json \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --buildNumber=100001 \
+            --configuration=release_arm64
+
+      - name: Collect IPA
+        run: |
+          mkdir -p out
+          cp /Users/Shared/telegram-ios/bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telegram-ipa
+          path: out/Telegram.ipa
