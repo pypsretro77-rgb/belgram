@@ -11,6 +11,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Restore Bazel cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: bazel-${{ github.run_id }}
+          restore-keys: |
+            bazel-
+
       - name: Fetch submodules from upstream
         run: |
           git config --global url."https://github.com/TelegramMessenger/".insteadOf "https://github.com/${{ github.repository_owner }}/"
@@ -93,10 +101,28 @@ jobs:
             --buildNumber=100001 \
             --configuration=release_arm64
 
+      - name: Save Bazel cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: bazel-${{ github.run_id }}
+
       - name: Collect IPA
         run: |
           mkdir -p out
-          cp /Users/Shared/telegram-ios/bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa out/
+          IPA=$(find -L /Users/Shared/telegram-ios/bazel-out -name 'Telegram.ipa' -type f 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then
+            IPA=$(find "$HOME/Library/Caches/bazel" -name 'Telegram.ipa' -type f 2>/dev/null | head -1)
+          fi
+          echo "Найден IPA: $IPA"
+          if [ -z "$IPA" ]; then
+            echo "Telegram.ipa не найден. Все найденные .ipa:"
+            find -L /Users/Shared/telegram-ios/bazel-out "$HOME/Library/Caches/bazel" -name '*.ipa' 2>/dev/null | head -20
+            exit 1
+          fi
+          cp "$IPA" out/Telegram.ipa
+          ls -la out/
 
       - uses: actions/upload-artifact@v4
         with:
