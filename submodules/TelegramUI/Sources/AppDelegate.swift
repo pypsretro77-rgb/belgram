@@ -696,10 +696,12 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             networkEngineFactory: RustNetworkEngineFactory()
         )
         
-        guard let appGroupUrl = maybeAppGroupUrl else {
-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
-            return true
-        }
+                   let appGroupUrl: URL
+           if let maybeAppGroupUrl = maybeAppGroupUrl {
+               appGroupUrl = maybeAppGroupUrl
+           } else {
+               appGroupUrl = URL(fileURLWithPath: NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0])
+           }
         
         var isDebugConfiguration = false
         #if DEBUG
