@@ -13,7 +13,6 @@ private enum FetchError {
 private func fetchRawData(prefix: String) -> Signal<Data, FetchError> {
     return Signal { subscriber in
                 if ProcessInfo.processInfo.environment["BELGRAM_ENABLE_CLOUDKIT"] == nil {
-            subscriber.putError(.generic)
             return ActionDisposable { }
         }
         let container = CKContainer.default()
