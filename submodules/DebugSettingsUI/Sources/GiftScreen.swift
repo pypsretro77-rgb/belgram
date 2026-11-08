@@ -8,6 +8,7 @@ private final class GradientView: UIView {
 }
 
 final class GiftScreen: UIViewController {
+    private let senderName = "transaction.from"
     private let giftName = "Myth Mask"
     private let giftNumber = "#00001"
     private let modelName = "Wooden Smile"
