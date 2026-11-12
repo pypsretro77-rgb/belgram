@@ -14,6 +14,7 @@ final class GiftScreen: UIViewController {
     private let modelName = "Wooden Smile"
     private let backdropName = "Black"
     private let symbolName = "French Fries"
+    private let uniqueGiftSlug = "plushpepe-1"
 
     init() {
         super.init(nibName: nil, bundle: nil)
