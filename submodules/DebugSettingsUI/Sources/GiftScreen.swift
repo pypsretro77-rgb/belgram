@@ -173,11 +173,15 @@ final class GiftScreen: UIViewController {
         content.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(content)
 
-        let icon = UILabel()
-        icon.text = "🎁"
-        icon.font = UIFont.systemFont(ofSize: 84.0)
-        content.addArrangedSubview(icon)
-        content.setCustomSpacing(14.0, after: icon)
+             let animationView = GiftLottieView()
+     animationView.translatesAutoresizingMaskIntoConstraints = false
+     content.addArrangedSubview(animationView)
+     NSLayoutConstraint.activate([
+         animationView.widthAnchor.constraint(equalToConstant: 200.0),
+         animationView.heightAnchor.constraint(equalToConstant: 200.0)
+     ])
+     animationView.load(slug: self.uniqueGiftSlug)
+     content.setCustomSpacing(14.0, after: animationView)
 
         content.addArrangedSubview(self.makeLabel("Подарок от \(self.senderName)", size: 20.0, weight: .bold, color: .white))
         let subtitle = self.makeLabel("\(self.giftName) \(self.giftNumber)", size: 17.0, weight: .regular, color: UIColor(white: 0.7, alpha: 1.0))
