@@ -1,24 +1,17 @@
 import Foundation
 import UIKit
-
-private final class GradientView: UIView {
-    override class var layerClass: AnyClass {
-        return CAGradientLayer.self
-    }
-}
+import WebKit
 
 final class GiftScreen: UIViewController {
-    private let senderName = "transaction.from"
-    private let giftName = "Myth Mask"
-    private let giftNumber = "#00001"
-    private let modelName = "Wooden Smile"
-    private let backdropName = "Black"
-    private let symbolName = "French Fries"
-    private let uniqueGiftSlug = "plushpepe-1"
+    private let slug: String
+    private let webView = WKWebView()
+    private let activityIndicator = UIActivityIndicatorView(style: .large)
 
-    init() {
+    init(slug: String = "plushpepe-1") {
+        self.slug = slug
         super.init(nibName: nil, bundle: nil)
-        self.modalPresentationStyle = .fullScreen
+        self.modalPresentationStyle = .overFullScreen
+        self.modalTransitionStyle = .crossDissolve
     }
 
     required init?(coder: NSCoder) {
@@ -27,199 +20,204 @@ final class GiftScreen: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.view.backgroundColor = .black
+        self.view.backgroundColor = UIColor.black.withAlphaComponent(0.8) // Затемнение фона
 
-        let background = GradientView()
-        background.translatesAutoresizingMaskIntoConstraints = false
-        if let gradient = background.layer as? CAGradientLayer {
-            gradient.colors = [
-                UIColor(red: 0.98, green: 0.20, blue: 0.45, alpha: 1.0).cgColor,
-                UIColor(red: 1.00, green: 0.70, blue: 0.10, alpha: 1.0).cgColor
-            ]
-            gradient.startPoint = CGPoint(x: 0.0, y: 0.0)
-            gradient.endPoint = CGPoint(x: 1.0, y: 1.0)
-        }
-        self.view.addSubview(background)
-        NSLayoutConstraint.activate([
-            background.topAnchor.constraint(equalTo: self.view.topAnchor),
-            background.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
-            background.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: self.view.trailingAnchor)
-        ])
-
-        let closeButton = UIButton(type: .system)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setTitle("Закрыть", for: .normal)
-        closeButton.setTitleColor(.white, for: .normal)
-        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 17.0, weight: .semibold)
-        closeButton.addTarget(self, action: #selector(self.closePressed), for: .touchUpInside)
-        self.view.addSubview(closeButton)
-
-        let footer = UILabel()
-        footer.translatesAutoresizingMaskIntoConstraints = false
-        footer.font = UIFont.systemFont(ofSize: 12.0, weight: .semibold)
-        footer.textColor = UIColor.white.withAlphaComponent(0.9)
-        footer.textAlignment = .center
-        self.view.addSubview(footer)
-
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 14.0
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        self.view.addSubview(stack)
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.isScrollEnabled = false
+        
+        self.view.addSubview(webView)
+        
+        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        activityIndicator.color = .white
+        activityIndicator.startAnimating()
+        self.view.addSubview(activityIndicator)
 
         NSLayoutConstraint.activate([
-            closeButton.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor, constant: 8.0),
-            closeButton.leadingAnchor.constraint(equalTo: self.view.leadingAnchor, constant: 16.0),
-            footer.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
-            footer.bottomAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.bottomAnchor, constant: -12.0),
-            stack.leadingAnchor.constraint(equalTo: self.view.leadingAnchor, constant: 20.0),
-            stack.trailingAnchor.constraint(equalTo: self.view.trailingAnchor, constant: -20.0),
-            stack.centerYAnchor.constraint(equalTo: self.view.centerYAnchor)
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            webView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            webView.heightAnchor.constraint(equalToConstant: 450),
+            
+            activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
 
-        let first = self.makeIncomingRow(text: "ок")
-        let second = self.makeIncomingRow(text: "держи")
-        stack.addArrangedSubview(first)
-        stack.addArrangedSubview(second)
-        first.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        second.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-        stack.addArrangedSubview(self.makeSystemPill(text: "\(self.senderName) передал(а) Вам уникальный коллекционный подарок"))
-
-        let card = self.makeCard()
-        stack.addArrangedSubview(card)
-        card.widthAnchor.constraint(equalToConstant: 270.0).isActive = true
+        loadGiftData()
     }
 
-    @objc private func closePressed() {
+    private func loadGiftData() {
+        // Загружаем HTML, который сам скачает JSON с Fragment, покрасит фон и запустит Lottie
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                }
+                #card {
+                    width: 100%;
+                    height: 100%;
+                    border-radius: 30px;
+                    position: relative;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                    background: #333; /* Дефолтный цвет */
+                }
+                #pattern {
+                    position: absolute;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    opacity: 0.2;
+                    background-size: cover;
+                    background-position: center;
+                    z-index: 1;
+                }
+                #anim {
+                    width: 250px;
+                    height: 250px;
+                    margin-top: 30px;
+                    z-index: 2;
+                }
+                .text-container {
+                    z-index: 2;
+                    text-align: center;
+                    color: white;
+                    margin-top: 10px;
+                }
+                .title {
+                    font-size: 24px;
+                    font-weight: bold;
+                    margin-bottom: 5px;
+                    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+                }
+                .subtitle {
+                    font-size: 16px;
+                    opacity: 0.8;
+                    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+                }
+                #number {
+                    position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    font-size: 20px;
+                    font-weight: bold;
+                    color: rgba(255,255,255,0.7);
+                    z-index: 2;
+                }
+                #attributes {
+                    z-index: 2;
+                    margin-top: 20px;
+                    background: rgba(0,0,0,0.4);
+                    padding: 10px 20px;
+                    border-radius: 15px;
+                    color: white;
+                    font-size: 14px;
+                }
+            </style>
+        </head>
+        <body>
+            <div id="card">
+                <div id="pattern"></div>
+                <div id="number">#---</div>
+                <div id="anim"></div>
+                <div class="text-container">
+                    <div class="title" id="title">Загрузка...</div>
+                    <div class="subtitle" id="subtitle"></div>
+                </div>
+                <div id="attributes"></div>
+            </div>
+
+            <script>
+                const slug = "\(slug)";
+                const url = `https://nft.fragment.com/gift/${slug}.json`;
+                
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        // Парсим атрибуты
+                        let model = "Unknown Model";
+                        let backdrop = "Unknown Backdrop";
+                        let symbol = "Unknown Symbol";
+                        
+                        if (data.attributes) {
+                            data.attributes.forEach(attr => {
+                                if (attr.trait_type === "Model") model = attr.value;
+                                if (attr.trait_type === "Backdrop") backdrop = attr.value;
+                                if (attr.trait_type === "Symbol") symbol = attr.value;
+                            });
+                        }
+
+                        // Устанавливаем текст
+                        document.getElementById('title').innerText = data.name || "Gift";
+                        document.getElementById('subtitle').innerText = model;
+                        document.getElementById('attributes').innerHTML = `Фон: <b>${backdrop}</b><br>Значок: <b>${symbol}</b>`;
+                        
+                        const num = slug.split('-').pop();
+                        document.getElementById('number').innerText = "#" + num.padStart(5, '0');
+
+                        // Красим карточку в зависимости от фона (очень примерные цвета)
+                        let bgColor = "#2C2C2E";
+                        if (backdrop.includes("Aquamarine")) bgColor = "#2E8B57";
+                        if (backdrop.includes("Black")) bgColor = "#111";
+                        if (backdrop.includes("Onyx")) bgColor = "#1a1a1a";
+                        if (backdrop.includes("Gold")) bgColor = "#D4AF37";
+                        if (backdrop.includes("Crimson")) bgColor = "#8B0000";
+                        if (backdrop.includes("Ocean")) bgColor = "#000080";
+                        document.getElementById('card').style.background = bgColor;
+
+                        // Запускаем Lottie
+                        lottie.loadAnimation({
+                            container: document.getElementById('anim'),
+                            renderer: 'svg',
+                            loop: true,
+                            autoplay: true,
+                            path: `https://nft.fragment.com/gift/${slug}.lottie.json`
+                        });
+                    })
+                    .catch(err => {
+                        document.getElementById('title').innerText = "Ошибка";
+                        document.getElementById('subtitle').innerText = "Подарок не найден";
+                    });
+            </script>
+        </body>
+        </html>
+        """
+        
+        webView.loadHTMLString(html, baseURL: URL(string: "https://nft.fragment.com"))
+        
+        // Скрываем индикатор загрузки через 2 секунды (когда Lottie начнет рисоваться)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.activityIndicator.stopAnimating()
+        }
+    }
+    
+    // Чтобы можно было закрыть карточку по тапу
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         self.dismiss(animated: true, completion: nil)
     }
-
-    private func makeLabel(_ text: String, size: CGFloat, weight: UIFont.Weight, color: UIColor) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.font = UIFont.systemFont(ofSize: size, weight: weight)
-        label.textColor = color
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        return label
-    }
-
-    private func makeIncomingRow(text: String) -> UIView {
-        let row = UIView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        let bubble = UIView()
-        bubble.translatesAutoresizingMaskIntoConstraints = false
-        bubble.backgroundColor = UIColor.white.withAlphaComponent(0.92)
-        bubble.layer.cornerRadius = 18.0
-        let label = self.makeLabel(text, size: 20.0, weight: .semibold, color: .black)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        bubble.addSubview(label)
-        row.addSubview(bubble)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 14.0),
-            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -14.0),
-            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 8.0),
-            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -8.0),
-            bubble.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-            bubble.topAnchor.constraint(equalTo: row.topAnchor),
-            bubble.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            bubble.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor)
-        ])
-        return row
-    }
-
-    private func makeSystemPill(text: String) -> UIView {
-        let pill = UIView()
-        pill.translatesAutoresizingMaskIntoConstraints = false
-        pill.backgroundColor = UIColor.black.withAlphaComponent(0.35)
-        pill.layer.cornerRadius = 16.0
-        let label = self.makeLabel(text, size: 14.0, weight: .semibold, color: .white)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.preferredMaxLayoutWidth = 290.0
-        pill.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14.0),
-            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14.0),
-            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 8.0),
-            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -8.0)
-        ])
-        return pill
-    }
-
-    private func makeAttributeRow(title: String, value: String) -> UIView {
-        let row = UIStackView()
-        row.axis = .horizontal
-        row.spacing = 12.0
-        row.alignment = .firstBaseline
-        row.addArrangedSubview(self.makeLabel(title, size: 16.0, weight: .regular, color: UIColor(white: 0.6, alpha: 1.0)))
-        row.addArrangedSubview(self.makeLabel(value, size: 16.0, weight: .bold, color: .white))
-        return row
-    }
-
-    private func makeCard() -> UIView {
-        let card = UIView()
-        card.translatesAutoresizingMaskIntoConstraints = false
-        card.backgroundColor = UIColor(white: 0.08, alpha: 1.0)
-        card.layer.cornerRadius = 28.0
-        card.clipsToBounds = true
-
-        let content = UIStackView()
-        content.axis = .vertical
-        content.alignment = .center
-        content.spacing = 6.0
-        content.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(content)
-
-             let animationView = GiftLottieView()
-     animationView.translatesAutoresizingMaskIntoConstraints = false
-     content.addArrangedSubview(animationView)
-     NSLayoutConstraint.activate([
-         animationView.widthAnchor.constraint(equalToConstant: 200.0),
-         animationView.heightAnchor.constraint(equalToConstant: 200.0)
-     ])
-     animationView.load(slug: self.uniqueGiftSlug)
-     content.setCustomSpacing(14.0, after: animationView)
-
-        content.addArrangedSubview(self.makeLabel("Подарок от \(self.senderName)", size: 20.0, weight: .bold, color: .white))
-        let subtitle = self.makeLabel("\(self.giftName) \(self.giftNumber)", size: 17.0, weight: .regular, color: UIColor(white: 0.7, alpha: 1.0))
-        content.addArrangedSubview(subtitle)
-        content.setCustomSpacing(16.0, after: subtitle)
-
-        let rows = UIStackView()
-        rows.axis = .vertical
-        rows.alignment = .center
-        rows.spacing = 8.0
-        rows.addArrangedSubview(self.makeAttributeRow(title: "Модель", value: self.modelName))
-        rows.addArrangedSubview(self.makeAttributeRow(title: "Фон", value: self.backdropName))
-        rows.addArrangedSubview(self.makeAttributeRow(title: "Значок", value: self.symbolName))
-        content.addArrangedSubview(rows)
-        content.setCustomSpacing(18.0, after: rows)
-
-        content.addArrangedSubview(self.makeLabel("Посмотреть", size: 20.0, weight: .semibold, color: .white))
-
-        let ribbon = UILabel()
-        ribbon.translatesAutoresizingMaskIntoConstraints = false
-        ribbon.text = "Подарок"
-        ribbon.textAlignment = .center
-        ribbon.font = UIFont.systemFont(ofSize: 12.0, weight: .heavy)
-        ribbon.textColor = .white
-        ribbon.backgroundColor = UIColor(red: 0.85, green: 0.20, blue: 0.20, alpha: 1.0)
-        card.addSubview(ribbon)
-
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16.0),
-            content.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16.0),
-            content.topAnchor.constraint(equalTo: card.topAnchor, constant: 28.0),
-            content.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24.0),
-            ribbon.widthAnchor.constraint(equalToConstant: 120.0),
-            ribbon.heightAnchor.constraint(equalToConstant: 22.0),
-            ribbon.centerXAnchor.constraint(equalTo: card.trailingAnchor, constant: -30.0),
-            ribbon.centerYAnchor.constraint(equalTo: card.topAnchor, constant: 30.0)
-        ])
-        ribbon.transform = CGAffineTransform(rotationAngle: CGFloat.pi / 4.0)
-        return card
+    
+    // Статический метод для вызова из любого места
+    static func show(slug: String) {
+        DispatchQueue.main.async {
+            if let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap({ $0.windows }).first(where: { $0.isKeyWindow }),
+               let root = window.rootViewController {
+                let screen = GiftScreen(slug: slug)
+                root.present(screen, animated: true, completion: nil)
+            }
+        }
     }
 }
