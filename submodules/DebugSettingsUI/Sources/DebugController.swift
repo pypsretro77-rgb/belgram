@@ -1885,6 +1885,7 @@ private func debugControllerEntries(context: AccountContext?, sharedContext: Sha
     
     entries.append(.logsHeader(presentationData.theme))
     entries.append(.sendLogs(presentationData.theme))
+    entries.append(.giftDemo(presentationData.theme))
     if isMainApp {
         entries.append(.crashReports)
     }
