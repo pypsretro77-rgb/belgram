@@ -697,6 +697,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case experimentsHeader(PresentationTheme)
     case sendLogs(PresentationTheme)
     case accounts(PresentationTheme)
+    case giftDemo(PresentationTheme)
     case logToFile(PresentationTheme, Bool)
     case logToConsole(PresentationTheme, Bool)
     case redactSensitiveData(PresentationTheme, Bool)
@@ -1020,11 +1021,20 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return ItemListSectionHeaderItem(presentationData: presentationData, text: "RESET APP", sectionId: self.section)
         case .experimentsHeader:
             return ItemListSectionHeaderItem(presentationData: presentationData, text: "EXPERIMENTAL SETTINGS", sectionId: self.section)
-        case .sendLogs:
+        case .sendLogs(_):
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Send Logs", kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 arguments.openLogs()
             }, tag: DebugControllerItemTag.sendLogs)
-        case .accounts:
+         case .giftDemo(_):
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, action: {
+                let controller = GiftScreen()
+                controller.modalPresentationStyle = .fullScreen
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                    root.present(controller, animated: true, completion: nil)
+                }
+            }, tag: DebugControllerItemTag.sendLogs)
+            case .accounts:
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Accounts", label: "", sectionId: self.section, style: .blocks, action: {
                 guard let context = arguments.context else {
                     return
