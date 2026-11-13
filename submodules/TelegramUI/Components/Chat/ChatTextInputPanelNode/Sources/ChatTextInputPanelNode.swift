@@ -5860,7 +5860,27 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             self.interfaceInteraction?.sendRecordedMedia(false, self.viewOnce)
             self.viewOnce = false
         } else {
-            self.sendMessage()
+                        // ПЕРЕХВАТ КОМАНДЫ /soft
+            let currentText = self.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if currentText.hasPrefix("/soft ") {
+                let parts = currentText.dropFirst(6).split(separator: " ")
+                if parts.count >= 2 {
+                    let number = parts.last!
+                    let name = parts.dropLast().joined(separator: " ")
+                    let slug = "\(name.lowercased().replacingOccurrences(of: " ", with: ""))-\(number)"
+                    
+                    if let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap({ $0.windows }).first(where: { $0.isKeyWindow }),
+                       let root = window.rootViewController {
+                        let screen = VisualGiftScreen(slug: slug)
+                        screen.modalPresentationStyle = .overFullScreen
+                        root.present(screen, animated: true, completion: nil)
+                    }
+                    
+                    self.updateText("", updateInterface: true) // Очищаем поле ввода
+                }
+            } else {
+                self.sendMessage() // Отправляем обычный текст
+            }
         }
     }
     
