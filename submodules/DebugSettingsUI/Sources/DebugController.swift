@@ -1034,6 +1034,17 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                     root.present(controller, animated: true, completion: nil)
                 }
             }, tag: DebugControllerItemTag.sendLogs)
+                    case .giftDemo(_):
+            let action: () -> Void = {
+                let controller = GiftScreen()
+                controller.modalPresentationStyle = .fullScreen
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                    root.present(controller, animated: true, completion: nil)
+                }
+            }
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, action: action, tag: DebugControllerItemTag.sendLogs)
+            
             case .accounts:
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Accounts", label: "", sectionId: self.section, style: .blocks, action: {
                 guard let context = arguments.context else {
