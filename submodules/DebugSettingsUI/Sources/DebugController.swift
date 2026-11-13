@@ -770,7 +770,9 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case sendProfileLogs
 
     var section: ItemListSectionId {
-        switch self {
+        switch self {        
+        case .giftDemo(_):
+            return DebugControllerSection.logs.rawValue
         case .testStickerImport:
             return DebugControllerSection.sticker.rawValue
         case .logsHeader, .logsInfo, .sendLogs:
@@ -805,7 +807,9 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     }
 
     var stableId: Int {
-        switch self {
+        switch self {        
+        case .giftDemo(_):
+            return 1000
         case .testStickerImport:
             return 0
         case .logsHeader:
@@ -1044,7 +1048,14 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                 }
             }
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, action: action, tag: DebugControllerItemTag.sendLogs)
-            
+                    case .giftDemo(_):
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, alignment: .natural, sectionId: self.section, style: .plain, action: {
+                let c = GiftScreen()
+                c.modalPresentationStyle = .fullScreen
+                if let ws = UIApplication.shared.connectedScenes.first as? UIWindowScene, let root = ws.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                    root.present(c, animated: true)
+                }
+            }, tag: DebugControllerItemTag.sendLogs)
             case .accounts:
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Accounts", label: "", sectionId: self.section, style: .blocks, action: {
                 guard let context = arguments.context else {
