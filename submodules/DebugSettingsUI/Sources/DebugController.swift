@@ -1029,34 +1029,15 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Send Logs", kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 arguments.openLogs()
             }, tag: DebugControllerItemTag.sendLogs)
-         case .giftDemo(_):
-            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, action: {
-                let controller = GiftScreen()
-                controller.modalPresentationStyle = .fullScreen
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                    root.present(controller, animated: true, completion: nil)
-                }
-            }, tag: DebugControllerItemTag.sendLogs)
-                    case .giftDemo(_):
-            let action: () -> Void = {
-                let controller = GiftScreen()
-                controller.modalPresentationStyle = .fullScreen
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                    root.present(controller, animated: true, completion: nil)
-                }
-            }
-            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, action: action, tag: DebugControllerItemTag.sendLogs)
-                    case .giftDemo(_):
-            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, alignment: .natural, sectionId: self.section, style: .plain, action: {
+        case .giftDemo(_):
+                     return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Gift Screen Demo", kind: .generic, alignment: .natural, sectionId: self.section, style: .plain, action: {
                 let c = GiftScreen()
                 c.modalPresentationStyle = .fullScreen
                 if let ws = UIApplication.shared.connectedScenes.first as? UIWindowScene, let root = ws.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                     root.present(c, animated: true)
                 }
             }, tag: DebugControllerItemTag.sendLogs)
-            case .accounts:
+        case .accounts:
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Accounts", label: "", sectionId: self.section, style: .blocks, action: {
                 guard let context = arguments.context else {
                     return
