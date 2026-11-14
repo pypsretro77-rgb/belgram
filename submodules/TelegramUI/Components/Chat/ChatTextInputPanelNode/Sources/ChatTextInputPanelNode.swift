@@ -5865,7 +5865,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 self.sendMessage() // Отправляем обычный текст
             }
         }
-    }
+    
     
     @objc func sendAsAvatarButtonPressed() {
         self.interfaceInteraction?.openSendAsPeer(self.sendAsAvatarReferenceNode, nil)
