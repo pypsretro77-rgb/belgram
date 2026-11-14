@@ -29,6 +29,7 @@ import InteractiveTextComponent
 import ShimmeringMask
 import StreamingTextReveal
 import WalletContext
+import WebKit // ДОБАВЛЕНО ДЛЯ БУДУЩЕЙ АНИМАЦИИ
 
 private final class CachedChatMessageText {
     let text: String
@@ -230,6 +231,15 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
             let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 0.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
             
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
+                
+                // --- МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ ---
+                if let text = item.message.text, text.hasPrefix("/soft ") {
+                    return (300.0, { _ in
+                        return (CGSize(width: 280.0, height: 400.0), { _, _, _ in })
+                    })
+                }
+                // ---------------------------------
+                
                 var topInset: CGFloat = 0.0
                 var bottomInset: CGFloat = 0.0
                 if case let .linear(top, bottom) = position {
@@ -1114,4 +1124,734 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     override public func animateRemoved(_ currentTimestamp: Double, duration: Double) {
         self.textNode.textNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
         if let statusNode = self.statusNode, statusNode.alpha != 0.0 {
-            statusNode.layer.animateAlpha(from: statusNode.alpha, to: 0.0, duration: 0.2, removeOnCompleti
+            statusNode.layer.animateAlpha(from: statusNode.alpha, to: 0.0, duration: 0.2, removeOnCompletion: false)
+        }
+    }
+    
+    override public func tapActionAtPoint(_ point: CGPoint, gesture: TapLongTapOrDoubleTapGesture, isEstimating: Bool) -> ChatMessageBubbleContentTapAction {
+        if case .tap = gesture {
+        } else {
+            if let item = self.item, let subject = item.associatedData.subject, case .messageOptions = subject {
+                return ChatMessageBubbleContentTapAction(content: .none)
+            }
+        }
+        
+        func makeActivate(_ urlRange: NSRange?) -> (() -> Promise<Bool>?)? {
+            return { [weak self] in
+                guard let self else {
+                    return nil
+                }
+                
+                let promise = Promise<Bool>()
+                
+                self.linkProgressDisposable?.dispose()
+                
+                if self.linkProgressRange != nil {
+                    self.linkProgressRange = nil
+                    self.updateLinkProgressState()
+                }
+                
+                self.linkProgressDisposable = (promise.get() |> deliverOnMainQueue).startStrict(next: { [weak self] value in
+                    guard let self else {
+                        return
+                    }
+                    let updatedRange: NSRange? = value ? urlRange : nil
+                    if self.linkProgressRange != updatedRange {
+                        self.linkProgressRange = updatedRange
+                        self.updateLinkProgressState()
+                    }
+                })
+                
+                return promise
+            }
+        }
+        
+        let textNodeFrame = self.textNode.textNode.frame
+        let textLocalPoint = CGPoint(x: point.x - textNodeFrame.minX, y: point.y - textNodeFrame.minY)
+        if let (index, attributes) = self.textNode.textNode.attributesAtPoint(textLocalPoint) {
+            var rects: [CGRect]?
+            let possibleNames: [String] = [
+                TelegramTextAttributes.URL,
+                TelegramTextAttributes.PeerMention,
+                TelegramTextAttributes.PeerTextMention,
+                TelegramTextAttributes.BotCommand,
+                TelegramTextAttributes.Hashtag,
+                TelegramTextAttributes.Timecode,
+                TelegramTextAttributes.BankCard,
+                TelegramTextAttributes.TonAddress,
+                TelegramTextAttributes.Date
+            ]
+            for name in possibleNames {
+                if let _ = attributes[NSAttributedString.Key(rawValue: name)] {
+                    rects = self.textNode.textNode.attributeRects(name: name, at: index)
+                    break
+                }
+            }
+            
+            
+            if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Spoiler)], !self.displayContentsUnderSpoilers.value {
+                return ChatMessageBubbleContentTapAction(content: .none)
+            } else if let tonAddress = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.TonAddress)] as? TelegramTonAddress {
+                guard tonAddress.range.length == 48, tonAddress.address.utf8.count == 48,
+                      WalletContext.transferAddress(from: tonAddress.address) != nil else {
+                    return ChatMessageBubbleContentTapAction(content: .none)
+                }
+                return ChatMessageBubbleContentTapAction(content: .tonAddress(tonAddress.address), rects: self.textNode.textNode.rangeRects(in: tonAddress.range)?.rects, activate: makeActivate(tonAddress.range))
+            } else if let url = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.URL)] as? String {
+                var concealed = true
+                var urlRange: NSRange?
+                if let (attributeText, fullText, urlRangeValue) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.URL, index: index) {
+                    urlRange = urlRangeValue
+                    concealed = !doesUrlMatchText(url: url, text: attributeText, fullText: fullText)
+                }
+                
+                var content: ChatMessageBubbleContentTapAction.Content
+                if url.hasPrefix("tel:") {
+                    content = .phone(url.replacingOccurrences(of: "tel:", with: ""))
+                } else {
+                    content = .url(ChatMessageBubbleContentTapAction.Url(url: url, concealed: concealed))
+                }
+                
+                return ChatMessageBubbleContentTapAction(content: content, rects: rects, activate: makeActivate(urlRange))
+            } else if let peerMention = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.PeerMention)] as? TelegramPeerMention {
+                return ChatMessageBubbleContentTapAction(content: .peerMention(peerId: peerMention.peerId, mention: peerMention.mention, openProfile: false), rects: rects)
+            } else if let peerName = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.PeerTextMention)] as? String {
+                var urlRange: NSRange?
+                if let (_, _, urlRangeValue) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.PeerTextMention, index: index) {
+                    urlRange = urlRangeValue
+                }
+                
+                return ChatMessageBubbleContentTapAction(content: .textMention(peerName), rects: rects, activate: makeActivate(urlRange))
+            } else if let botCommand = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.BotCommand)] as? String {
+                return ChatMessageBubbleContentTapAction(content: .botCommand(botCommand), rects: rects)
+            } else if let hashtag = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Hashtag)] as? TelegramHashtag {
+                return ChatMessageBubbleContentTapAction(content: .hashtag(hashtag.peerName, hashtag.hashtag), rects: rects)
+            } else if let timecode = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Timecode)] as? TelegramTimecode {
+                return ChatMessageBubbleContentTapAction(content: .timecode(timecode.time, timecode.text), rects: rects)
+            } else if let bankCard = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.BankCard)] as? String {
+                var urlRange: NSRange?
+                if let (_, _, urlRangeValue) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.BankCard, index: index) {
+                    urlRange = urlRangeValue
+                }
+                return ChatMessageBubbleContentTapAction(content: .bankCard(bankCard), rects: rects, activate: makeActivate(urlRange))
+            } else if let pre = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Pre)] as? String {
+                return ChatMessageBubbleContentTapAction(content: .copy(pre))
+            } else if let code = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Code)] as? String {
+                return ChatMessageBubbleContentTapAction(content: .copy(code))
+            } else if let date = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Date)] as? Int32 {
+                var string = ""
+                if let (_, text, _) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.Date, index: index) {
+                    string = text
+                }
+                return ChatMessageBubbleContentTapAction(content: .date(date, string), rects: rects)
+            } else if let _ = attributes[NSAttributedString.Key(rawValue: "Attribute__Blockquote")] {
+                if let _ = self.textNode.textNode.collapsibleBlockAtPoint(textLocalPoint) {
+                    return ChatMessageBubbleContentTapAction(content: .none)
+                } else {
+                    if let text = self.textNode.textNode.attributeSubstring(name: "Attribute__Blockquote", index: index) {
+                        return ChatMessageBubbleContentTapAction(content: .copy(text.0))
+                    } else {
+                        return ChatMessageBubbleContentTapAction(content: .none)
+                    }
+                }
+            } else if let emoji = attributes[NSAttributedString.Key(rawValue: ChatTextInputAttributes.customEmoji.rawValue)] as? ChatTextInputTextCustomEmojiAttribute, let file = emoji.file {
+                return ChatMessageBubbleContentTapAction(content: .customEmoji(file))
+            } else {
+                if let item = self.item, item.message.text.count == 1, !item.presentationData.largeEmoji {
+                    let (emoji, fitz) = item.message.text.basicEmoji
+                    var emojiFile: TelegramMediaFile?
+                    
+                    emojiFile = item.associatedData.animatedEmojiStickers[emoji]?.first?.file._parse()
+                    if emojiFile == nil {
+                        emojiFile = item.associatedData.animatedEmojiStickers[emoji.strippedEmoji]?.first?.file._parse()
+                    }
+                    
+                    if let emojiFile = emojiFile {
+                        return ChatMessageBubbleContentTapAction(content: .largeEmoji(emoji, fitz, emojiFile))
+                    } else {
+                        return ChatMessageBubbleContentTapAction(content: .none)
+                    }
+                } else {
+                    return ChatMessageBubbleContentTapAction(content: .none)
+                }
+            }
+        } else {
+            if let statusNode = self.statusNode, let _ = statusNode.hitTest(self.view.convert(point, to: statusNode.view), with: nil) {
+                return ChatMessageBubbleContentTapAction(content: .ignore)
+            }
+            return ChatMessageBubbleContentTapAction(content: .none)
+        }
+    }
+    
+    override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let statusNode = self.statusNode, statusNode.supernode != nil, let result = statusNode.hitTest(self.view.convert(point, to: statusNode.view), with: event) {
+            return result
+        }
+        return super.hitTest(point, with: event)
+    }
+    
+    private func updateIsTranslating(_ isTranslating: Bool, showTextAsPlaceholder: Bool) {
+        guard let item = self.item else {
+            return
+        }
+        var rects = self.textNode.textNode.rangeRects(in: NSRange(location: 0, length: self.textNode.textNode.cachedLayout?.attributedString?.length ?? 0))?.rects ?? []
+        if isTranslating, !rects.isEmpty {
+            if showTextAsPlaceholder {
+                self.textNode.textNode.isHidden = true
+            }
+            let shimmeringNode: ShimmeringLinkNode
+            if let current = self.shimmeringNode {
+                shimmeringNode = current
+            } else {
+                let color: UIColor
+                let isIncoming = item.message.effectivelyIncoming(item.context.account.peerId)
+                let messageTheme = item.presentationData.theme.theme.chat.message
+                if showTextAsPlaceholder {
+                    rects = rects.map { $0.insetBy(dx: 0.0, dy: 6.0 + UIScreenPixel) }
+                    if rects.count == 2 {
+                        rects[0].origin.y += 1.0
+                        rects[1].origin.y -= 1.0
+                    }
+                    color = isIncoming ? messageTheme.incoming.secondaryTextColor.withMultipliedAlpha(0.25) : messageTheme.outgoing.secondaryTextColor.withMultipliedAlpha(0.25)
+                } else {
+                    if item.presentationData.theme.theme.overallDarkAppearance {
+                        color = isIncoming ? messageTheme.incoming.primaryTextColor.withAlphaComponent(0.1) : messageTheme.outgoing.primaryTextColor.withAlphaComponent(0.1)
+                    } else {
+                        color = isIncoming ? messageTheme.incoming.accentTextColor.withAlphaComponent(0.1) : messageTheme.outgoing.secondaryTextColor.withAlphaComponent(0.1)
+                    }
+                }
+                shimmeringNode = ShimmeringLinkNode(color: color, isSkeleton: showTextAsPlaceholder)
+                shimmeringNode.updateRects(rects)
+                shimmeringNode.frame = self.textNode.textNode.frame
+                shimmeringNode.updateLayout(self.textNode.textNode.frame.size)
+                shimmeringNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
+                self.shimmeringNode = shimmeringNode
+                self.containerNode.insertSubnode(shimmeringNode, belowSubnode: self.textNode.textNode)
+            }
+        } else if let shimmeringNode = self.shimmeringNode {
+            self.shimmeringNode = nil
+            shimmeringNode.alpha = 0.0
+            shimmeringNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, completion: { [weak shimmeringNode] _ in
+                shimmeringNode?.removeFromSupernode()
+            })
+        }
+    }
+    
+    override public func updateTouchesAtPoint(_ point: CGPoint?) {
+        if let item = self.item {
+            var rects: [CGRect]?
+            var spoilerRects: [CGRect]?
+            if let point = point {
+                let textNodeFrame = self.textNode.textNode.frame
+                if let (index, attributes) = self.textNode.textNode.attributesAtPoint(CGPoint(x: point.x - textNodeFrame.minX, y: point.y - textNodeFrame.minY)) {
+                    let possibleNames: [String] = [
+                        TelegramTextAttributes.URL,
+                        TelegramTextAttributes.PeerMention,
+                        TelegramTextAttributes.PeerTextMention,
+                        TelegramTextAttributes.BotCommand,
+                        TelegramTextAttributes.Hashtag,
+                        TelegramTextAttributes.Timecode,
+                        TelegramTextAttributes.BankCard,
+                        TelegramTextAttributes.TonAddress,
+                        TelegramTextAttributes.Date
+                    ]
+                    for name in possibleNames {
+                        if let _ = attributes[NSAttributedString.Key(rawValue: name)] {
+                            rects = self.textNode.textNode.attributeRects(name: name, at: index)
+                            break
+                        }
+                    }
+                    if let tonAddress = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.TonAddress)] as? TelegramTonAddress {
+                        rects = self.textNode.textNode.rangeRects(in: tonAddress.range)?.rects
+                    }
+                    if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Spoiler)] {
+                        spoilerRects = self.textNode.textNode.attributeRects(name: TelegramTextAttributes.Spoiler, at: index)
+                    }
+                }
+            }
+            
+            if let spoilerRects = spoilerRects, !spoilerRects.isEmpty, !self.displayContentsUnderSpoilers.value {
+            } else if let rects = rects {
+                let linkHighlightingNode: LinkHighlightingNode
+                if let current = self.linkHighlightingNode {
+                    linkHighlightingNode = current
+                } else {
+                    linkHighlightingNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.linkHighlightColor : item.presentationData.theme.theme.chat.message.outgoing.linkHighlightColor)
+                    self.linkHighlightingNode = linkHighlightingNode
+                    self.containerNode.insertSubnode(linkHighlightingNode, belowSubnode: self.textNode.textNode)
+                }
+                linkHighlightingNode.frame = self.textNode.textNode.frame
+                linkHighlightingNode.updateRects(rects)
+            } else if let linkHighlightingNode = self.linkHighlightingNode {
+                self.linkHighlightingNode = nil
+                linkHighlightingNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.18, removeOnCompletion: false, completion: { [weak linkHighlightingNode] _ in
+                    linkHighlightingNode?.removeFromSupernode()
+                })
+            }
+        }
+    }
+    
+    override public func updateSearchTextHighlightState(text: String?, messages: [EngineMessage.Index]?) {
+        guard let item = self.item else {
+            return
+        }
+        let rectsSet: [[CGRect]]
+        if let text = text, let messages = messages, !text.isEmpty, messages.contains(item.message.index) {
+            rectsSet = self.textNode.textNode.textRangesRects(text: text)
+        } else {
+            rectsSet = []
+        }
+        for i in 0 ..< rectsSet.count {
+            var rects = rectsSet[i]
+            if rects.count > 1 {
+                for i in 0 ..< rects.count - 1 {
+                    let deltaY = rects[i + 1].minY - rects[i].maxY
+                    if deltaY > 0.0 && deltaY <= 2.0 {
+                        rects[i].size.height += deltaY * 0.5
+                        rects[i + 1].size.height += deltaY * 0.5
+                        rects[i + 1].origin.y -= deltaY * 0.5
+                    }
+                }
+            }
+            let textHighlightNode: LinkHighlightingNode
+            if i < self.textHighlightingNodes.count {
+                textHighlightNode = self.textHighlightingNodes[i]
+            } else {
+                textHighlightNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.textHighlightColor : item.presentationData.theme.theme.chat.message.outgoing.textHighlightColor)
+                self.textHighlightingNodes.append(textHighlightNode)
+                self.containerNode.insertSubnode(textHighlightNode, belowSubnode: self.textNode.textNode)
+            }
+            textHighlightNode.frame = self.textNode.textNode.frame
+            textHighlightNode.updateRects(rects)
+        }
+        for i in (rectsSet.count ..< self.textHighlightingNodes.count).reversed() {
+            self.textHighlightingNodes[i].removeFromSupernode()
+            self.textHighlightingNodes.remove(at: i)
+        }
+    }
+    
+    private func updateLinkPreviewTextHighlightState(text: String?) {
+        guard let item = self.item else {
+            return
+        }
+        
+        var rectsSet: [[CGRect]] = []
+        if let text = text, !text.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
+            let nsString = string as NSString
+            let range = nsString.range(of: text)
+            if range.location != NSNotFound {
+                if let rects = cachedLayout.rangeRects(in: range)?.rects, !rects.isEmpty {
+                    rectsSet = [rects]
+                }
+            }
+        }
+        for i in 0 ..< rectsSet.count {
+            let rects = rectsSet[i]
+            let textHighlightNode: LinkHighlightingNode
+            if i < self.linkPreviewHighlightingNodes.count {
+                textHighlightNode = self.linkPreviewHighlightingNodes[i]
+            } else {
+                textHighlightNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.linkHighlightColor.withMultipliedAlpha(0.5) : item.presentationData.theme.theme.chat.message.outgoing.linkHighlightColor.withMultipliedAlpha(0.5))
+                self.linkPreviewHighlightingNodes.append(textHighlightNode)
+                self.containerNode.insertSubnode(textHighlightNode, belowSubnode: self.textNode.textNode)
+            }
+            textHighlightNode.frame = self.textNode.textNode.frame
+            textHighlightNode.updateRects(rects)
+        }
+        for i in (rectsSet.count ..< self.linkPreviewHighlightingNodes.count).reversed() {
+            self.linkPreviewHighlightingNodes[i].removeFromSupernode()
+            self.linkPreviewHighlightingNodes.remove(at: i)
+        }
+    }
+    
+    private func updateLinkProgressState() {
+        guard let item = self.item else {
+            return
+        }
+        
+        let range: NSRange = self.linkProgressRange ?? NSRange(location: NSNotFound, length: 0)
+        if range.location != NSNotFound {
+            let linkProgressView: TextLoadingEffectView
+            if let current = self.linkProgressView {
+                linkProgressView = current
+            } else {
+                linkProgressView = TextLoadingEffectView(frame: CGRect())
+                self.linkProgressView = linkProgressView
+                self.containerNode.view.addSubview(linkProgressView)
+            }
+            linkProgressView.frame = self.textNode.textNode.frame
+            
+            let progressColor: UIColor = item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.linkHighlightColor : item.presentationData.theme.theme.chat.message.outgoing.linkHighlightColor
+            
+            linkProgressView.update(color: progressColor, textNode: self.textNode.textNode, range: range)
+        } else {
+            if let linkProgressView = self.linkProgressView {
+                self.linkProgressView = nil
+                linkProgressView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak linkProgressView] _ in
+                    linkProgressView?.removeFromSuperview()
+                })
+            }
+        }
+    }
+    
+    public func animateQuoteTextHighlightIn(sourceFrame: CGRect, transition: ContainedViewLayoutTransition) -> CGRect? {
+        if let quoteHighlightingNode = self.quoteHighlightingNode {
+            var currentRect = CGRect()
+            for rect in quoteHighlightingNode.rects {
+                if currentRect.isEmpty {
+                    currentRect = rect
+                } else {
+                    currentRect = currentRect.union(rect)
+                }
+            }
+            if !currentRect.isEmpty {
+                currentRect = currentRect.insetBy(dx: -quoteHighlightingNode.inset, dy: -quoteHighlightingNode.inset)
+                let innerRect = currentRect.offsetBy(dx: quoteHighlightingNode.frame.minX, dy: quoteHighlightingNode.frame.minY)
+                
+                quoteHighlightingNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.1, delay: 0.04)
+                
+                let fromScale = CGPoint(x: sourceFrame.width / innerRect.width, y: sourceFrame.height / innerRect.height)
+                
+                var fromTransform = CATransform3DIdentity
+                let fromOffset = CGPoint(x: sourceFrame.midX - innerRect.midX, y: sourceFrame.midY - innerRect.midY)
+                
+                fromTransform = CATransform3DTranslate(fromTransform, fromOffset.x, fromOffset.y, 0.0)
+                
+                fromTransform = CATransform3DTranslate(fromTransform, -quoteHighlightingNode.bounds.width * 0.5 + currentRect.midX, -quoteHighlightingNode.bounds.height * 0.5 + currentRect.midY, 0.0)
+                fromTransform = CATransform3DScale(fromTransform, fromScale.x, fromScale.y, 1.0)
+                fromTransform = CATransform3DTranslate(fromTransform, quoteHighlightingNode.bounds.width * 0.5 - currentRect.midX, quoteHighlightingNode.bounds.height * 0.5 - currentRect.midY, 0.0)
+                
+                quoteHighlightingNode.transform = fromTransform
+                transition.updateTransform(node: quoteHighlightingNode, transform: CGAffineTransformIdentity)
+                
+                return currentRect.offsetBy(dx: quoteHighlightingNode.frame.minX, dy: quoteHighlightingNode.frame.minY)
+            }
+        }
+        return nil
+    }
+    
+    public func getQuoteRect(quote: String, offset: Int?) -> CGRect? {
+        var rectsSet: [CGRect] = []
+        if !quote.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
+            
+            let range = findQuoteRange(string: string, quoteText: quote, offset: offset)
+            if let range, let rects = cachedLayout.rangeRects(in: range)?.rects, !rects.isEmpty {
+                rectsSet = rects
+            }
+        }
+        if !rectsSet.isEmpty {
+            var currentRect = CGRect()
+            for rect in rectsSet {
+                if currentRect.isEmpty {
+                    currentRect = rect
+                } else {
+                    currentRect = currentRect.union(rect)
+                }
+            }
+            
+            return currentRect.offsetBy(dx: self.textNode.textNode.frame.minX, dy: self.textNode.textNode.frame.minY)
+        }
+        
+        return nil
+    }
+    
+    public func updateQuoteTextHighlightState(text: String?, offset: Int?, color: UIColor, animated: Bool) {
+        var rectsSet: [CGRect] = []
+        if let text = text, !text.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
+            let quoteRange = findQuoteRange(string: string, quoteText: text, offset: offset)
+            if let quoteRange, let rects = cachedLayout.rangeRects(in: quoteRange)?.rects, !rects.isEmpty {
+                rectsSet = rects
+            }
+        }
+        if !rectsSet.isEmpty {
+            let rects = rectsSet
+            let textHighlightNode: LinkHighlightingNode
+            if let current = self.quoteHighlightingNode {
+                textHighlightNode = current
+            } else {
+                textHighlightNode = LinkHighlightingNode(color: color)
+                self.quoteHighlightingNode = textHighlightNode
+                self.containerNode.insertSubnode(textHighlightNode, belowSubnode: self.textNode.textNode)
+            }
+            textHighlightNode.frame = self.textNode.textNode.frame
+            textHighlightNode.updateRects(rects)
+        } else {
+            if let quoteHighlightingNode = self.quoteHighlightingNode {
+                self.quoteHighlightingNode = nil
+                if animated {
+                    quoteHighlightingNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak quoteHighlightingNode] _ in
+                        quoteHighlightingNode?.removeFromSupernode()
+                    })
+                } else {
+                    quoteHighlightingNode.removeFromSupernode()
+                }
+            }
+        }
+    }
+    
+    override public func willUpdateIsExtractedToContextPreview(_ value: Bool) {
+        if !value {
+            if let textSelectionNode = self.textSelectionNode {
+                self.textSelectionNode = nil
+                textSelectionNode.highlightAreaNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
+                textSelectionNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak textSelectionNode] _ in
+                    textSelectionNode?.highlightAreaNode.removeFromSupernode()
+                    textSelectionNode?.removeFromSupernode()
+                })
+            }
+        }
+    }
+    
+    override public func updateIsExtractedToContextPreview(_ value: Bool) {
+        if value {
+            if self.textSelectionNode == nil, let item = self.item, let rootNode = item.controllerInteraction.chatControllerNode() {
+                let selectionColor: UIColor
+                let knobColor: UIColor
+                if item.message.effectivelyIncoming(item.context.account.peerId) {
+                    selectionColor = item.presentationData.theme.theme.chat.message.incoming.textSelectionColor
+                    knobColor = item.presentationData.theme.theme.chat.message.incoming.textSelectionKnobColor
+                } else {
+                    selectionColor = item.presentationData.theme.theme.chat.message.outgoing.textSelectionColor
+                    knobColor = item.presentationData.theme.theme.chat.message.outgoing.textSelectionKnobColor
+                }
+                
+                let textSelectionNode = TextSelectionNode(theme: TextSelectionTheme(selection: selectionColor, knob: knobColor, isDark: item.presentationData.theme.theme.overallDarkAppearance), strings: item.presentationData.strings, textNodeOrView: .node(self.textNode.textNode), updateIsActive: { [weak self] value in
+                    self?.updateIsTextSelectionActive?(value)
+                }, present: { [weak self] c, a in
+                    guard let self, let item = self.item else {
+                        return
+                    }
+                    
+                    if let subject = item.associatedData.subject, case let .messageOptions(_, _, info) = subject, case .reply = info {
+                        item.controllerInteraction.presentControllerInCurrent(c, a)
+                    } else {
+                        item.controllerInteraction.presentGlobalOverlayController(c, a)
+                    }
+                }, rootView: { [weak rootNode] in
+                    return rootNode?.view
+                }, performAction: { [weak self] text, action in
+                    guard let strongSelf = self, let item = strongSelf.item else {
+                        return
+                    }
+                    item.controllerInteraction.performTextSelectionAction(item.message, true, text, nil, action)
+                })
+                textSelectionNode.updateRange = { [weak self] selectionRange in
+                    guard let strongSelf = self else {
+                        return
+                    }
+                    if !strongSelf.displayContentsUnderSpoilers.value, let textLayout = strongSelf.textNode.textNode.cachedLayout, textLayout.segments.contains(where: { !$0.spoilers.isEmpty }), let selectionRange {
+                        for segment in textLayout.segments {
+                            for (spoilerRange, _) in segment.spoilers {
+                                if let intersection = selectionRange.intersection(spoilerRange), intersection.length > 0 {
+                                    strongSelf.updateDisplayContentsUnderSpoilers(value: true, at: nil)
+                                    return
+                                }
+                            }
+                        }
+                    }
+                    if let textSelectionState = strongSelf.textSelectionState {
+                        textSelectionState.set(.single(strongSelf.getSelectionState(range: selectionRange)))
+                    }
+                }
+                
+                let enableCopy = (!item.associatedData.isCopyProtectionEnabled && !item.message.isCopyProtected()) || item.message.id.peerId.isVerificationCodes
+                textSelectionNode.enableCopy = enableCopy
+                
+                var enableQuote = !item.message.text.isEmpty
+                var enableOtherActions = true
+                if let subject = item.associatedData.subject, case let .messageOptions(_, _, info) = subject, case .reply = info {
+                    enableOtherActions = false
+                } else if item.controllerInteraction.canSetupReply(item.message) == .reply {
+                    //enableOtherActions = false
+                }
+                
+                if !item.controllerInteraction.canSendMessages() && !enableCopy {
+                    enableQuote = false
+                }
+                if item.message.id.peerId.namespace == Namespaces.Peer.SecretChat || item.message.id.peerId.isVerificationCodes {
+                    enableQuote = false
+                }
+                if item.message.containsSecretMedia {
+                    enableQuote = false
+                }
+                if item.associatedData.translateToLanguage != nil {
+                    enableQuote = false
+                }
+                
+                textSelectionNode.enableQuote = enableQuote
+                textSelectionNode.enableTranslate = enableOtherActions
+                textSelectionNode.enableShare = enableOtherActions && enableCopy
+                textSelectionNode.menuSkipCoordnateConversion = !enableOtherActions
+                self.textSelectionNode = textSelectionNode
+                self.containerNode.addSubnode(textSelectionNode)
+                self.containerNode.insertSubnode(textSelectionNode.highlightAreaNode, belowSubnode: self.textNode.textNode)
+                textSelectionNode.frame = self.textNode.textNode.frame
+                textSelectionNode.highlightAreaNode.frame = self.textNode.textNode.frame
+            }
+        } else {
+            if let textSelectionNode = self.textSelectionNode {
+                self.textSelectionNode = nil
+                self.updateIsTextSelectionActive?(false)
+                textSelectionNode.highlightAreaNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
+                textSelectionNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak textSelectionNode] _ in
+                    textSelectionNode?.highlightAreaNode.removeFromSupernode()
+                    textSelectionNode?.removeFromSupernode()
+                })
+            }
+            
+            if self.displayContentsUnderSpoilers.value {
+                self.updateDisplayContentsUnderSpoilers(value: false, at: nil)
+            }
+        }
+    }
+    
+    private func updateDisplayContentsUnderSpoilers(value: Bool, at location: CGPoint?) {
+        if self.displayContentsUnderSpoilers.value == value {
+            return
+        }
+        self.displayContentsUnderSpoilers = (value, location)
+        if let item = self.item {
+            item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
+        }
+    }
+    
+    override public func reactionTargetView(value: MessageReaction.Reaction) -> UIView? {
+        if let statusNode = self.statusNode, !statusNode.isHidden {
+            return statusNode.reactionView(value: value)
+        }
+        return nil
+    }
+    
+    override public func messageEffectTargetView() -> UIView? {
+        if let statusNode = self.statusNode, !statusNode.isHidden {
+            return statusNode.messageEffectTargetView()
+        }
+        return nil
+    }
+    
+    override public func getStatusNode() -> ASDisplayNode? {
+        return self.statusNode
+    }
+
+    public func animateFrom(sourceView: UIView, scrollOffset: CGFloat, widthDifference: CGFloat, transition: CombinedTransition) {
+        self.containerNode.clipsToBounds = false
+        self.containerNode.view.addSubview(sourceView)
+
+        sourceView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.1, removeOnCompletion: false, completion: { [weak sourceView] _ in
+            sourceView?.removeFromSuperview()
+        })
+        self.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.08)
+
+        let offset = CGPoint(
+            x: sourceView.frame.minX - (self.textNode.textNode.frame.minX - 0.0),
+            y: sourceView.frame.minY - (self.textNode.textNode.frame.minY - 3.0) - scrollOffset
+        )
+
+        transition.vertical.animatePositionAdditive(layer: self.textNode.textNode.layer, offset: offset, completion: { [weak self] _ in
+            guard let self else {
+                return
+            }
+            self.containerNode.clipsToBounds = true
+        })
+        transition.updatePosition(layer: sourceView.layer, position: CGPoint(x: sourceView.layer.position.x - offset.x, y: sourceView.layer.position.y - offset.y))
+
+        if let statusNode = self.statusNode {
+            statusNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
+            transition.horizontal.animatePositionAdditive(node: statusNode, offset: CGPoint(x: -widthDifference, y: 0.0))
+        }
+    }
+    
+    public func beginTextSelection(range: NSRange?, displayMenu: Bool = true) {
+        guard let textSelectionNode = self.textSelectionNode else {
+            return
+        }
+        guard let string = self.textNode.textNode.cachedLayout?.attributedString else {
+            return
+        }
+        let nsString = string.string as NSString
+        let range = range ?? NSRange(location: 0, length: nsString.length)
+        textSelectionNode.setSelection(range: range, displayMenu: displayMenu)
+    }
+    
+    public func cancelTextSelection() {
+        guard let textSelectionNode = self.textSelectionNode else {
+            return
+        }
+        textSelectionNode.cancelSelection()
+    }
+    
+    private func getSelectionState(range: NSRange?) -> ChatControllerSubject.MessageOptionsInfo.SelectionState {
+        var quote: ChatControllerSubject.MessageOptionsInfo.Quote?
+        if let item = self.item, let range, let selection = self.getCurrentTextSelection(customRange: range) {
+            quote = ChatControllerSubject.MessageOptionsInfo.Quote(messageId: item.message.id, text: selection.text, offset: selection.offset)
+        }
+        return ChatControllerSubject.MessageOptionsInfo.SelectionState(canQuote: true, quote: quote)
+    }
+    
+    public func getCurrentTextSelection(customRange: NSRange? = nil) -> (text: String, entities: [MessageTextEntity], offset: Int)? {
+        guard let textSelectionNode = self.textSelectionNode else {
+            return nil
+        }
+        guard let rawRange = customRange ?? textSelectionNode.getSelection() else {
+            return nil
+        }
+        guard let item = self.item else {
+            return nil
+        }
+        guard let string = self.textNode.attributedString else {
+            return nil
+        }
+        
+        func normalizedSelectionRange(_ range: NSRange, length: Int) -> NSRange {
+            let location = min(max(range.location, 0), length)
+            let upperBound = min(max(location, range.location + range.length), length)
+            return NSRange(location: location, length: upperBound - location)
+        }
+        
+        let range = normalizedSelectionRange(rawRange, length: string.length)
+        guard range.length > 0 else {
+            return nil
+        }
+
+        let nsString = string.string as NSString
+        let substring = nsString.substring(with: range)
+        let offset = range.location
+        
+        var entities: [MessageTextEntity] = []
+        if let textEntitiesAttribute = item.message.textEntitiesAttribute {
+            entities = messageTextEntitiesInRange(entities: textEntitiesAttribute.entities, range: range, onlyQuoteable: true)
+        }
+        
+        return (substring, entities, offset)
+    }
+    
+    public func animateClippingTransition(offset: CGFloat, animation: ListViewItemUpdateAnimation) {
+        self.containerNode.clipsToBounds = true
+        self.containerNode.bounds = CGRect(origin: CGPoint(x: 0.0, y: offset), size: self.containerNode.bounds.size)
+        self.containerNode.alpha = 0.0
+        animation.animator.updateAlpha(layer: self.containerNode.layer, alpha: 1.0, completion: nil)
+        animation.animator.updateBounds(layer: self.containerNode.layer, bounds: CGRect(origin: CGPoint(), size: self.containerNode.bounds.size), completion: { [weak self] completed in
+            guard let self, completed else {
+                return
+            }
+            self.containerNode.clipsToBounds = true
+        })
+    }
+}
+
+extension ChatMessageTextBubbleContentNode: ChatMessageQuoteSourceContentNode {
+    public var hasTextSelection: Bool {
+        return self.getCurrentTextSelection() != nil
+    }
+
+    public func currentReplyQuote(maxLength: Int) -> EngineMessageReplyQuote? {
+        guard let textSelection = self.getCurrentTextSelection() else {
+            return nil
+        }
+        let trimmedText = trimStringWithEntities(string: textSelection.text, entities: textSelection.entities, maxLength: maxLength)
+        if trimmedText.string.isEmpty {
+            return nil
+        }
+        return EngineMessageReplyQuote(text: trimmedText.string, offset: textSelection.offset, entities: trimmedText.entities, media: nil)
+    }
+}
