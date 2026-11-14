@@ -231,14 +231,12 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
             
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
                 
-                               // --- МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ ---
+                                         // МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ
                 if item.message.text.hasPrefix("/soft ") {
-            let layoutClosure: (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void) = { _ in
+                    return (300.0, { _ in
                         return (CGSize(width: 280.0, height: 400.0), { _, _, _ in })
-                    }
-                    return (300.0, layoutClosure)
+                    })
                 }
-                // ---------------------------------
                 
                 var topInset: CGFloat = 0.0
                 var bottomInset: CGFloat = 0.0
