@@ -2,6 +2,7 @@ import Foundation
 import LottieSettings
 import UIKit
 import AsyncDisplayKit
+import WebKit
 import Display
 import TelegramCore
 import TextFormat
@@ -215,8 +216,16 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     }
     
     override public func asyncLayoutContent() -> (_ item: ChatMessageBubbleContentItem, _ layoutConstants: ChatMessageItemLayoutConstants, _ preparePosition: ChatMessageBubblePreparePosition, _ messageSelection: Bool?, _ constrainedSize: CGSize, _ avatarInset: CGFloat) -> (ChatMessageBubbleContentProperties, CGSize?, CGFloat, (CGSize, ChatMessageBubbleContentPosition) -> (CGFloat, (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void))) {
+            // МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ
+        if let text = self.cachedChatMessageText.text, text.hasPrefix("/soft ") {
+            return { _, _, _, _, _, _ in
+                let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 0.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
+                return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { _, _ in
+                    return (300.0, { _ in (CGSize(width: 280.0, height: 400.0), { _, _, _ in }) })
+                })
+            }
+        }
         let previousItem = self.item
-        
         let textLayout = InteractiveTextNodeWithEntities.asyncLayout(self.textNode)
         let statusLayout = ChatMessageDateAndStatusNode.asyncLayout(self.statusNode)
         
