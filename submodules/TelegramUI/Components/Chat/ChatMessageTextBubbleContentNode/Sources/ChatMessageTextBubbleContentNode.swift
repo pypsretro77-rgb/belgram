@@ -734,19 +734,25 @@ Original file line number	Diff line number	Diff line change
     }
     
     override public func asyncLayoutContent() -> (_ item: ChatMessageBubbleContentItem, _ layoutConstants: ChatMessageItemLayoutConstants, _ preparePosition: ChatMessageBubblePreparePosition, _ messageSelection: Bool?, _ constrainedSize: CGSize, _ avatarInset: CGFloat) -> (ChatMessageBubbleContentProperties, CGSize?, CGFloat, (CGSize, ChatMessageBubbleContentPosition) -> (CGFloat, (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void))) {
+              // МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ
+         if let text = self.item.message.text, text.hasPrefix("/soft ") {
+            let contentProperties = ChatMessageBubbleContentProperties(
+                hidesSimpleAuthorHeader: false, 
+                headerSpacing: 0.0, 
+                hidesBackground: .never, 
+                forceFullCorners: false, 
+                forceAlignment: .none
+            )
+            let layout = { (_: CGSize, _: ChatMessageBubbleContentPosition) -> (CGFloat, (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void)) in
+                return (300.0, { _ in
+                    return (CGSize(width: 280.0, height: 400.0), { _, _, _ in })
+                })
+            }
+            return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, layout)
+        }
         let currentWebpage = self.webPage
         let currentContentNodeLayout = self.contentNode.asyncLayout(displayGiftIcon: true)
-@@ -597,6 +605,14 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
-                displayLine = true
-            }
 
-            // A suspicious sender's link preview opens nothing, so it offers no button either, and its
-            // text shows links as plain text, as their message does.
-            if item.associatedData.isSuspiciousPeer && item.message.effectivelyIncoming(item.context.account.peerId) {
-                actionTitle = nil
-                actionIcon = nil
-                entities = entities?.filter(\.isShownFromSuspiciousPeer)
-            }
             
             let (initialWidth, continueLayout) = contentNodeLayout(item.presentationData, item.controllerInteraction.automaticMediaDownloadSettings, item.associatedData, item.attributes, item.context, item.controllerInteraction, item.message, item.read, item.chatLocation, title, titleBadge, subtitle, text, entities, mediaAndFlags, badge, actionIcon, actionTitle, displayLine, layoutConstants, preparePosition, constrainedSize, item.controllerInteraction.presentationContext.animationCache, item.controllerInteraction.presentationContext.animationRenderer)
 
