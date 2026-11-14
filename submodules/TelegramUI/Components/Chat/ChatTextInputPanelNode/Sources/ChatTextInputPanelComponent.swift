@@ -345,7 +345,7 @@ public final class ChatTextInputPanelComponent: Component {
             guard let panelNode = self.panelNode else {
                 return
             }
-            panelNode.ensureFocused()
+            
         }
         
         public func deactivateInput() {
