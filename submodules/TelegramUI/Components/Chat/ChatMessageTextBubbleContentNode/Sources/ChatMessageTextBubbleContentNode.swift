@@ -1,1856 +1,867 @@
+Skip to content
+pypsretro77-rgb
+belgram
+Repository navigation
+Code
+Pull requests
+Agents
+Actions
+Projects
+Wiki
+Security and quality
+Insights
+Settings
+Commit 007fb3f
+isaacclaude
+isaac
+and
+claude
+committed
+3 weeks ago
+Suspicious peers: hide buttons and emoji status, read nothing until accepted
+While a user's chat shows the report/block panel (CachedUserData.isSuspiciousPeer),
+their messages were only partly untrusted: plain-text links were stripped, but
+buttons, rich-message links, link-preview text and their emoji status were live,
+and the chat read their messages on sight. Until the panel is dismissed or the
+account sends them a message:
+
+- Reply-markup rows are not shown (bubbles, stickers, round videos). Rich messages go
+  through instantPageForSuspiciousSender: links become plain text as in a plain
+  message, inline pills and button rows are not shown, block indices are kept for
+  rich-quote node ids. A link preview shows no button, opens nothing, and its text
+  loses links too (MessageTextEntity.isShownFromSuspiciousPeer, now shared with the
+  text bubble).
+- The emoji status is hidden in the chat title, the panel's Premium-mark note and
+  the profile header (with a collectible status's cover and colours).
+- The history reads nothing, also while a non-contact's settings are still unknown.
+- Sending a non-scheduled message clears canReport/canBlock locally (Add Contact
+  stays), which ends the state.
+
+Verified on the simulator with a temporary hook forcing the state (removed): keyboards
+hidden and back live on dismiss, URL buttons likewise, title and profile show the
+Premium star instead of the status, read decisions held and applied on dismiss and
+on send (gate log; Skip Read History was on, so no read reached the server). Rich
+messages are covered by InstantPageSuspiciousSenderTests only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+master
+1 parent 
+cfddf6e
+ commit 
+007fb3f
+16 files changed
+
++491
+-29
+Lines changed: 491 additions & 29 deletions
+File tree
+Filter files…
+CLAUDE.md
+submodules
+InstantPageUI
+Sources
+InstantPageSuspiciousSender.swift
+Tests
+InstantPageSuspiciousSenderTests.swift
+TelegramCore/Sources
+PendingMessages
+EnqueueMessage.swift
+SyncCore
+SyncCore_PeerStatusSettings.swift
+TelegramUI
+Components
+Chat
+ChatMessageAnimatedStickerItemNode/Sources
+ChatMessageAnimatedStickerItemNode.swift
+ChatMessageBubbleItemNode/Sources
+ChatMessageBubbleItemNode.swift
+ChatMessageInstantVideoItemNode/Sources
+ChatMessageInstantVideoItemNode.swift
+ChatMessageRichDataBubbleContentNode/Sources
+ChatMessageRichDataBubbleContentNode.swift
+ChatMessageStickerItemNode/Sources
+ChatMessageStickerItemNode.swift
+ChatMessageTextBubbleContentNode/Sources
+ChatMessageTextBubbleContentNode.swift
+ChatMessageWebpageBubbleContentNode/Sources
+ChatMessageWebpageBubbleContentNode.swift
+PeerInfo/PeerInfoScreen/Sources
+PeerInfoHeaderNode.swift
+Sources
+ChatControllerContentData.swift
+ChatHistoryListNode.swift
+ChatReportPeerTitlePanelNode.swift
+Search within code
+ 
+Customizable line height
+The default line height has been increased for improved accessibility. You can choose to enable a more compact line height from the view settings menu.
+
+‎CLAUDE.md‎
++28
+Lines changed: 28 additions & 0 deletions
+
+
+Original file line number	Diff line number	Diff line change
+@@ -1353,6 +1353,34 @@ user's direct messages with a channel) keep their read state whatever the partic
+opened from News also shows no unread badge on its back button
+(`NavigateToChatControllerParams.showsUnreadChatsBackBadge`).
+
+## A non-contact's chat before it is accepted (suspicious peer)
+While a user's chat shows the report/block panel (`PeerStatusSettings` `canReport`/`canBlock`; the one
+predicate is `CachedUserData.isSuspiciousPeer`), their incoming messages are untrusted until the panel is
+dismissed or the account sends them a message:
+- Links, mentions, hashtags and cashtags, emails, bank cards and TON addresses show as plain text
+  (`MessageTextEntity.isShownFromSuspiciousPeer`, also in a link preview's text; `instantPageForSuspiciousSender`
+  for rich messages). A link preview opens nothing and has no button.
+- Buttons are not shown: reply-markup rows, rich inline pills and button rows. A link-styled rich button keeps
+  its label as plain text.
+- Their emoji status is hidden in the chat title, in the panel's "is a mark for Premium" note and in the
+  profile header, including the cover and colours of a collectible status.
+- Nothing is marked read (`ChatHistoryListNode.holdsReadsForSender`). Reads also wait while a non-contact's
+  settings are still unknown, as on the first open of a chat they started: a read cannot be taken back.
+Non-obvious:
+- **Sending clears the flags locally.** `enqueueMessages(transaction:)` drops `canReport`/`canBlock` for a
+  non-scheduled send; Add Contact stays. `users.getFullUser` rewrites the settings on every refresh, so if the
+  server keeps those flags after a reply, the state returns on the next refresh. Unverified as of 2026-10-21
+  (no second account to test with); the fallback is `hidePeerSettingsBar` on send, which also drops Add Contact.
+- **The rich transform keeps every block's index.** A button row stays with no buttons, which lays out to
+  nothing and adds no spacing. Block paths are rich-quote node ids, and quotes are built from the stored page.
+  Removing an inline pill drops its label from its node's text, so such a message cannot be partially quoted
+  while the state lasts.
+- Private chats only. Chat list rows, search, and groups or channels with a report panel are unchanged.
+## Postbox → TelegramEngine refactor (in progress)
+
+A gradual migration is underway to eliminate direct `import Postbox` from consumer submodules in favor of `TelegramEngine`.
+‎submodules/InstantPageUI/Sources/InstantPageSuspiciousSender.swift‎
++149
+Lines changed: 149 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -0,0 +1,149 @@
 import Foundation
-import LottieSettings
-import UIKit
-import AsyncDisplayKit
-import WebKit
-import Display
 import TelegramCore
-import TextFormat
-import UrlEscaping
-import TelegramUniversalVideoContent
-import TextSelectionNode
-import Emoji
-import AnimatedStickerNode
-import TelegramAnimatedStickerNode
-import SwiftSignalKit
-import AccountContext
-import YuvConversion
-import AnimationCache
-import LottieAnimationCache
-import MultiAnimationRenderer
-import EmojiTextAttachmentView
-import TextNodeWithEntities
-import ChatMessageDateAndStatusNode
-import ChatMessageBubbleContentNode
-import ShimmeringLinkNode
-import ChatMessageItemCommon
-import TextLoadingEffect
-import ChatControllerInteraction
-import InteractiveTextComponent
-import ShimmeringMask
-import StreamingTextReveal
-import WalletContext
-
-private final class CachedChatMessageText {
-    let text: String
-    let inputEntities: [MessageTextEntity]?
-    let entities: [MessageTextEntity]?
-    
-    init(text: String, inputEntities: [MessageTextEntity]?, entities: [MessageTextEntity]?) {
-        self.text = text
-        self.inputEntities = inputEntities
-        self.entities = entities
-    }
-    
-    func matches(text: String, inputEntities: [MessageTextEntity]?) -> Bool {
-        if self.text != text {
-            return false
+/// The page as a chat shows it from a suspicious sender (`CachedUserData.isSuspiciousPeer`: the
+/// chat's report/block panel is still up), matching what a plain message from them shows.
+///
+/// - Links, emails, mentions, hashtags and cashtags, bank cards and TON addresses become plain text:
+///   the set a plain message from them loses (`MessageTextEntity.isShownFromSuspiciousPeer`). Phone
+///   numbers, bot commands, dates, anchors and custom emoji stay. An image block loses its link.
+/// - Buttons are not shown. An inline pill becomes nothing; a link-styled button is drawn as a link,
+///   so its label stays as plain text. A button row keeps its place with no buttons, which lays out
+///   to nothing and adds no spacing (`layoutBlockSequence` advances only on height).
+///
+/// Every block keeps its index: block paths are rich-quote node ids and structural paths, so the
+/// original page's ids still address the same blocks here.
+public func instantPageForSuspiciousSender(_ page: InstantPage) -> InstantPage {
+    return InstantPage(
+        blocks: page.blocks.map(suspiciousSenderBlock),
+        media: page.media,
+        isComplete: page.isComplete,
+        rtl: page.rtl,
+        url: page.url,
+        views: page.views
+    )
+}
+private func suspiciousSenderBlock(_ block: InstantPageBlock) -> InstantPageBlock {
+    switch block {
+    case .unsupported, .formula, .divider, .anchor, .channelBanner:
+        return block
+    case let .title(text):
+        return .title(suspiciousSenderText(text))
+    case let .subtitle(text):
+        return .subtitle(suspiciousSenderText(text))
+    case let .authorDate(author, date):
+        return .authorDate(author: suspiciousSenderText(author), date: date)
+    case let .header(text):
+        return .header(suspiciousSenderText(text))
+    case let .subheader(text):
+        return .subheader(suspiciousSenderText(text))
+    case let .heading(text, level):
+        return .heading(text: suspiciousSenderText(text), level: level)
+    case let .paragraph(text):
+        return .paragraph(suspiciousSenderText(text))
+    case let .preformatted(text, language):
+        return .preformatted(text: suspiciousSenderText(text), language: language)
+    case let .footer(text):
+        return .footer(suspiciousSenderText(text))
+    case let .list(items, ordered):
+        return .list(items: items.map(suspiciousSenderListItem), ordered: ordered)
+    case let .blockQuote(blocks, caption, collapsed):
+        return .blockQuote(blocks: blocks.map(suspiciousSenderBlock), caption: suspiciousSenderText(caption), collapsed: collapsed)
+    case let .pullQuote(text, caption):
+        return .pullQuote(text: suspiciousSenderText(text), caption: suspiciousSenderText(caption))
+    case let .image(id, caption, _, _, spoiler):
+        return .image(id: id, caption: suspiciousSenderCaption(caption), url: nil, webpageId: nil, spoiler: spoiler)
+    case let .video(id, caption, autoplay, loop, spoiler):
+        return .video(id: id, caption: suspiciousSenderCaption(caption), autoplay: autoplay, loop: loop, spoiler: spoiler)
+    case let .audio(id, caption):
+        return .audio(id: id, caption: suspiciousSenderCaption(caption))
+    case let .document(id, caption):
+        return .document(id: id, caption: suspiciousSenderCaption(caption))
+    case let .buttonRow(alignment, _):
+        return .buttonRow(alignment: alignment, buttons: [])
+    case let .cover(inner):
+        return .cover(suspiciousSenderBlock(inner))
+    case let .webEmbed(url, html, dimensions, caption, stretchToWidth, allowScrolling, coverId):
+        return .webEmbed(url: url, html: html, dimensions: dimensions, caption: suspiciousSenderCaption(caption), stretchToWidth: stretchToWidth, allowScrolling: allowScrolling, coverId: coverId)
+    case let .postEmbed(url, webpageId, avatarId, author, date, blocks, caption):
+        return .postEmbed(url: url, webpageId: webpageId, avatarId: avatarId, author: author, date: date, blocks: blocks.map(suspiciousSenderBlock), caption: suspiciousSenderCaption(caption))
+    case let .collage(items, caption):
+        return .collage(items: items.map(suspiciousSenderBlock), caption: suspiciousSenderCaption(caption))
+    case let .slideshow(items, caption):
+        return .slideshow(items: items.map(suspiciousSenderBlock), caption: suspiciousSenderCaption(caption))
+    case let .kicker(text):
+        return .kicker(suspiciousSenderText(text))
+    case let .thinking(text):
+        return .thinking(suspiciousSenderText(text))
+    case let .table(title, rows, bordered, striped, compact):
+        let rows = rows.map { row in
+            return InstantPageTableRow(cells: row.cells.map { cell in
+                return InstantPageTableCell(text: cell.text.flatMap(suspiciousSenderText), header: cell.header, alignment: cell.alignment, verticalAlignment: cell.verticalAlignment, colspan: cell.colspan, rowspan: cell.rowspan)
+            })
         }
-        if let current = self.inputEntities, let inputEntities = inputEntities {
-            if current != inputEntities {
-                return false
-            }
-        } else if (self.inputEntities != nil) != (inputEntities != nil) {
-            return false
-        }
-        return true
+        return .table(title: suspiciousSenderText(title), rows: rows, bordered: bordered, striped: striped, compact: compact)
+    case let .details(title, blocks, expanded):
+        return .details(title: suspiciousSenderText(title), blocks: blocks.map(suspiciousSenderBlock), expanded: expanded)
+    case let .relatedArticles(title, articles):
+        return .relatedArticles(title: suspiciousSenderText(title), articles: articles)
+    case let .map(latitude, longitude, zoom, dimensions, caption):
+        return .map(latitude: latitude, longitude: longitude, zoom: zoom, dimensions: dimensions, caption: suspiciousSenderCaption(caption))
     }
 }
+private func suspiciousSenderListItem(_ item: InstantPageListItem) -> InstantPageListItem {
+    switch item {
+    case .unknown:
+        return item
+    case let .text(text, num, checked):
+        return .text(suspiciousSenderText(text), num, checked)
+    case let .blocks(blocks, num, checked):
+        return .blocks(blocks.map(suspiciousSenderBlock), num, checked)
+    }
+}
+private func suspiciousSenderCaption(_ caption: InstantPageCaption) -> InstantPageCaption {
+    return InstantPageCaption(text: suspiciousSenderText(caption.text), credit: suspiciousSenderText(caption.credit))
+}
+private func suspiciousSenderText(_ text: RichText) -> RichText {
+    switch text {
+    case .empty, .plain, .image, .formula, .textCustomEmoji:
+        return text
+    case let .bold(child):
+        return .bold(suspiciousSenderText(child))
+    case let .italic(child):
+        return .italic(suspiciousSenderText(child))
+    case let .underline(child):
+        return .underline(suspiciousSenderText(child))
+    case let .strikethrough(child):
+        return .strikethrough(suspiciousSenderText(child))
+    case let .fixed(child):
+        return .fixed(suspiciousSenderText(child))
+    case let .subscript(child):
+        return .subscript(suspiciousSenderText(child))
+    case let .superscript(child):
+        return .superscript(suspiciousSenderText(child))
+    case let .marked(child):
+        return .marked(suspiciousSenderText(child))
+    case let .textSpoiler(child):
+        return .textSpoiler(text: suspiciousSenderText(child))
+    case let .concat(children):
+        return .concat(children.map(suspiciousSenderText))
+    case let .phone(child, phone):
+        return .phone(text: suspiciousSenderText(child), phone: phone)
+    case let .anchor(child, name):
+        return .anchor(text: suspiciousSenderText(child), name: name)
+    case let .textAutoPhone(child):
+        return .textAutoPhone(text: suspiciousSenderText(child))
+    case let .textBotCommand(child):
+        return .textBotCommand(text: suspiciousSenderText(child))
+    case let .textDate(child, date, format):
+        return .textDate(text: suspiciousSenderText(child), date: date, format: format)
+    case let .url(child, _, _), let .email(child, _), let .textAutoEmail(child), let .textAutoUrl(child), let .textBankCard(child), let .textTonAddress(child), let .textCashtag(child), let .textHashtag(child), let .textMention(child), let .textMentionName(child, _):
+        return suspiciousSenderText(child)
+    case let .textButton(button):
+        return button.isLink ? suspiciousSenderText(button.text) : .empty
+    }
+}
+‎submodules/InstantPageUI/Tests/InstantPageSuspiciousSenderTests.swift‎
++122
+Lines changed: 122 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -0,0 +1,122 @@
+import XCTest
+import TelegramCore
+@testable import InstantPageUI
+private func makePage(_ blocks: [InstantPageBlock]) -> InstantPage {
+    return InstantPage(blocks: blocks, media: [:], isComplete: true, rtl: false, url: "", views: nil)
+}
+private func shown(_ blocks: [InstantPageBlock]) -> [InstantPageBlock] {
+    return instantPageForSuspiciousSender(makePage(blocks)).blocks
+}
+private func shownText(_ text: RichText) -> RichText {
+    guard case let .paragraph(result) = shown([.paragraph(text)]).first else {
+        XCTFail("a paragraph stays a paragraph")
+        return .empty
+    }
+    return result
+}
+private func makeButton(_ label: String, isLink: Bool) -> InstantPageButton {
+    return InstantPageButton(text: .plain(label), action: .url("https://example.com"), color: nil, isLink: isLink)
+}
+final class InstantPageSuspiciousSenderTests: XCTestCase {
+    /// The kinds a plain message from the same sender loses (`.Url`, `.TextUrl`, `.Email`, `.Mention`,
+    /// `.TextMention`, `.Hashtag` with cashtags, `.BankCard`, `.TonAddress`) become their text,
+    /// formatting inside them kept.
+    func testLinkLikeRunsBecomeTheirText() {
+        let inner = RichText.bold(.plain("x"))
+        let stripped: [RichText] = [
+            .url(text: inner, url: "https://example.com", webpageId: nil),
+            .email(text: inner, email: "a@b.c"),
+            .textAutoEmail(text: inner),
+            .textAutoUrl(text: inner),
+            .textBankCard(text: inner),
+            .textTonAddress(text: inner),
+            .textCashtag(text: inner),
+            .textHashtag(text: inner),
+            .textMention(text: inner),
+            .textMentionName(text: inner, peerId: 1)
+        ]
+        for text in stripped {
+            XCTAssertEqual(shownText(.concat([.plain("a "), text])), .concat([.plain("a "), inner]), "\(text)")
+        }
+    }
+    /// What a plain message keeps (phone numbers, bot commands, dates) stays, and so do anchors.
+    func testOtherRunsStay() {
+        let kept: [RichText] = [
+            .phone(text: .plain("+1"), phone: "+1"),
+            .textAutoPhone(text: .plain("+1")),
+            .textBotCommand(text: .plain("/start")),
+            .textDate(text: .plain("today"), date: 1, format: nil),
+            .anchor(text: .plain("a"), name: "a"),
+            .textCustomEmoji(fileId: 1, alt: "a"),
+            .textSpoiler(text: .plain("s"))
+        ]
+        for text in kept {
+            XCTAssertEqual(shownText(text), text)
+        }
+    }
+    /// A link inside a kept wrapper is still stripped.
+    func testLinksInsideKeptRunsAreStripped() {
+        let link = RichText.url(text: .plain("x"), url: "https://example.com", webpageId: nil)
+        XCTAssertEqual(shownText(.textSpoiler(text: link)), .textSpoiler(text: .plain("x")))
+        XCTAssertEqual(shownText(.italic(.underline(link))), .italic(.underline(.plain("x"))))
+    }
+    /// An inline pill is not shown; a link-styled button reads as a link, so its label stays as text.
+    func testInlineButtons() {
+        XCTAssertEqual(shownText(.concat([.plain("a"), .textButton(makeButton("Pay", isLink: false))])), .concat([.plain("a"), .empty]))
+        XCTAssertEqual(shownText(.concat([.plain("a"), .textButton(makeButton("here", isLink: true))])), .concat([.plain("a"), .plain("here")]))
+    }
+    /// A button row loses its buttons but keeps its index, so the blocks after it keep their paths,
+    /// which are the rich-quote node ids.
+    func testButtonRowKeepsItsPlace() {
+        let blocks: [InstantPageBlock] = [
+            .paragraph(.plain("one")),
+            .buttonRow(alignment: .center, buttons: [makeButton("Open", isLink: false)]),
+            .paragraph(.url(text: .plain("two"), url: "https://example.com", webpageId: nil))
+        ]
+        let result = shown(blocks)
+        XCTAssertEqual(result.count, 3)
+        XCTAssertEqual(result[1], .buttonRow(alignment: .center, buttons: []))
+        let originalNodes = instantPageQuotableNodes(blocks)
+        let shownNodes = instantPageQuotableNodes(result)
+        XCTAssertEqual(shownNodes.map(\.id), originalNodes.map(\.id))
+        XCTAssertEqual(shownNodes.map(\.flatText), originalNodes.map(\.flatText))
+    }
+    /// Nested containers are walked: list items, table cells and titles, details, quotes and captions.
+    func testNestedTextIsStripped() {
+        let link = RichText.url(text: .plain("x"), url: "https://example.com", webpageId: nil)
+        let caption = InstantPageCaption(text: link, credit: link)
+        let blocks: [InstantPageBlock] = [
+            .list(items: [.text(link, nil, nil), .blocks([.paragraph(link)], nil, nil)], ordered: false),
+            .table(title: link, rows: [InstantPageTableRow(cells: [InstantPageTableCell(text: link, header: false, alignment: .left, verticalAlignment: .top, colspan: 1, rowspan: 1)])], bordered: false, striped: false, compact: false),
+            .details(title: link, blocks: [.paragraph(link)], expanded: false),
+            .blockQuote(blocks: [.paragraph(link)], caption: link, collapsed: nil),
+            .image(id: EngineMedia.Id(namespace: 0, id: 1), caption: caption, url: "https://example.com", webpageId: nil, spoiler: false)
+        ]
+        let plain = RichText.plain("x")
+        let plainCaption = InstantPageCaption(text: plain, credit: plain)
+        XCTAssertEqual(shown(blocks), [
+            .list(items: [.text(plain, nil, nil), .blocks([.paragraph(plain)], nil, nil)], ordered: false),
+            .table(title: plain, rows: [InstantPageTableRow(cells: [InstantPageTableCell(text: plain, header: false, alignment: .left, verticalAlignment: .top, colspan: 1, rowspan: 1)])], bordered: false, striped: false, compact: false),
+            .details(title: plain, blocks: [.paragraph(plain)], expanded: false),
+            .blockQuote(blocks: [.paragraph(plain)], caption: plain, collapsed: nil),
+            .image(id: EngineMedia.Id(namespace: 0, id: 1), caption: plainCaption, url: nil, webpageId: nil, spoiler: false)
+        ])
+    }
+    /// A page with nothing to strip comes back equal.
+    func testPlainPageIsUnchanged() {
+        let blocks: [InstantPageBlock] = [.heading(text: .bold(.plain("h")), level: 1), .paragraph(.plain("p")), .formula(latex: "x")]
+        XCTAssertEqual(shown(blocks), blocks)
+    }
+}
+‎submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift‎
++13
+Lines changed: 13 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -879,6 +879,19 @@ func enqueueMessages(transaction: Transaction, account: Account, peerId: PeerId,
+        }
+    }
 
-private func findQuoteRange(string: String, quoteText: String, offset: Int?) -> NSRange? {
-    let nsString = string as NSString
-    var currentRange: NSRange?
-    while true {
-        let startOffset = currentRange?.upperBound ?? 0
-        let range = nsString.range(of: quoteText, range: NSRange(location: startOffset, length: nsString.length - startOffset))
-        if range.location != NSNotFound {
-            if let offset {
-                if let currentRangeValue = currentRange {
-                    if abs(range.location - offset) > abs(currentRangeValue.location - offset) {
-                        break
-                    } else {
-                        currentRange = range
-                    }
-                } else {
-                    currentRange = range
+    // Sending to a user whose chat still shows the report/block panel ends its suspicious state
+    // (`CachedUserData.isSuspiciousPeer`): only the report and block flags go, so an Add Contact
+    // offer stays. A scheduled message reaches no one yet and changes nothing.
+    if peerId.namespace == Namespaces.Peer.CloudUser, messages.contains(where: { !$0.1.attributes.contains(where: { $0 is OutgoingScheduleInfoMessageAttribute }) }) {
+        transaction.updatePeerCachedData(peerIds: Set([peerId]), update: { _, current in
+            guard let current = current as? CachedUserData, current.isSuspiciousPeer, var peerStatusSettings = current.peerStatusSettings else {
+                return current
+            }
+            peerStatusSettings.flags.subtract(.suspiciousPeer)
+            return current.withUpdatedPeerStatusSettings(peerStatusSettings)
+        })
+    }
+    
+    var forwardedMessageIds = Set<MessageId>()
+    for (_, message) in messages {
+        if case let .forward(sourceId, _, _, _, _) = message {
+‎submodules/TelegramCore/Sources/SyncCore/SyncCore_PeerStatusSettings.swift‎
++32
+Lines changed: 32 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -145,3 +145,35 @@ public struct PeerStatusSettings: PostboxCoding, Equatable {
+        return self.flags.contains(member)
+    }
+}
+public extension PeerStatusSettings.Flags {
+    /// The flags that keep a user's chat suspicious (`CachedUserData.isSuspiciousPeer`).
+    static let suspiciousPeer: PeerStatusSettings.Flags = [.canReport, .canBlock]
+}
+public extension CachedUserData {
+    /// The user's chat still shows the report/block panel: they wrote first, and the account has
+    /// neither dismissed the panel nor sent them a message (`enqueueMessages` clears these flags
+    /// locally). Until then the chat shows their links as plain text, hides their buttons and
+    /// emoji status, and marks nothing read.
+    var isSuspiciousPeer: Bool {
+        guard let flags = self.peerStatusSettings?.flags else {
+            return false
+        }
+        return !flags.isDisjoint(with: .suspiciousPeer)
+    }
+}
+public extension MessageTextEntity {
+    /// Whether a suspicious peer's text keeps this entity (`CachedUserData.isSuspiciousPeer`). Links,
+    /// mentions, hashtags (cashtags arrive as hashtags), emails, bank cards and TON addresses show as
+    /// plain text.
+    var isShownFromSuspiciousPeer: Bool {
+        switch self.type {
+        case .Url, .TextUrl, .Mention, .TextMention, .Hashtag, .Email, .BankCard, .TonAddress:
+            return false
+        default:
+            return true
+        }
+    }
+}
+‎submodules/TelegramUI/Components/Chat/ChatMessageAnimatedStickerItemNode/Sources/ChatMessageAnimatedStickerItemNode.swift‎
++5
+Lines changed: 5 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -1236,6 +1236,11 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
                 }
-            } else {
-                currentRange = range
-                break
             }
-        } else {
-            break
+
+            // A suspicious sender's buttons are not shown, as their links are not.
+            if item.associatedData.isSuspiciousPeer && item.message.effectivelyIncoming(item.context.account.peerId) {
+                replyMarkup = nil
+            }
+            
+            var hasReply = replyMessage != nil || replyForward != nil || replyStory != nil
+            if case let .peer(peerId) = item.chatLocation, (peerId == replyMessage?.id.peerId || item.message.threadId == 1), let peer = item.message.peers[item.message.id.peerId], peer.isForumOrMonoForum, item.message.associatedThreadInfo != nil {
+                if let threadId = item.message.threadId, let replyMessage = replyMessage, Int64(replyMessage.id.id) == threadId {
+‎submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift‎
++4
+Lines changed: 4 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -2214,6 +2214,10 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+        if firstMessage.isRestricted(platform: "ios", contentSettings: item.context.currentContentSettings.with { $0 }) {
+            replyMarkup = nil
+        }
+        // A suspicious sender's buttons are not shown, as their links are not.
+        if item.associatedData.isSuspiciousPeer && firstMessage.effectivelyIncoming(item.context.account.peerId) {
+            replyMarkup = nil
+        }
+
+        if let forwardInfo = firstMessage.forwardInfo, forwardInfo.psaType != nil {
+            inlineBotNameString = nil
+‎submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoItemNode/Sources/ChatMessageInstantVideoItemNode.swift‎
++5
+Lines changed: 5 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -520,6 +520,11 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+                }
+            }
+
+            // A suspicious sender's buttons are not shown, as their links are not.
+            if item.associatedData.isSuspiciousPeer && item.message.effectivelyIncoming(item.context.account.peerId) {
+                replyMarkup = nil
+            }
+            
+            if replyMessage != nil || replyForward != nil || replyStory != nil {
+                replyInfoApply = makeReplyInfoLayout(ChatMessageReplyInfoNode.Arguments(
+                    presentationData: item.presentationData,
+‎submodules/TelegramUI/Components/Chat/ChatMessageRichDataBubbleContentNode/Sources/ChatMessageRichDataBubbleContentNode.swift‎
++75
+-9
+Lines changed: 75 additions & 9 deletions
+Original file line number	Diff line number	Diff line change
+@@ -52,16 +52,69 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
+                return .original
+            }
+        }
+        func withPage(_ page: ObjectIdentifier) -> ResolvedRichDataPageKey {
+            switch self {
+            case let .pendingEdit(attribute, _):
+                return .pendingEdit(attribute: attribute, page: page)
+            case let .translated(language, attribute, _):
+                return .translated(language: language, attribute: attribute, page: page)
+            case let .original(attribute, _):
+                return .original(attribute: attribute, page: page)
+            }
         }
     }
-    return currentRange
-}
 
-public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
-    public final class ContainerNode: ASDisplayNode {
+    private struct ResolvedRichDataContent {
+        let instantPage: InstantPage
+        var instantPage: InstantPage
+        let originalAttribute: RichTextMessageAttribute?
+        let key: ResolvedRichDataPageKey
+        var key: ResolvedRichDataPageKey
+        let isTranslated: Bool
+        let isTranslating: Bool
+        /// Set when `instantPage` is a suspicious sender's page as shown (`showing(_:)`).
+        var suspiciousSenderPage: SuspiciousSenderPage? = nil
+        /// The page a selection quotes from: the page the server stored, which a suspicious sender's
+        /// shown page maps back to only when stripping it left every quotable node's text alone.
+        var quotablePage: InstantPage? {
+            guard let suspiciousSenderPage = self.suspiciousSenderPage else {
+                return self.instantPage
+            }
+            return suspiciousSenderPage.keepsQuotes ? suspiciousSenderPage.original : nil
+        }
+        func showing(_ suspiciousSenderPage: SuspiciousSenderPage) -> ResolvedRichDataContent {
+            var result = self
+            result.instantPage = suspiciousSenderPage.shown
+            result.key = self.key.withPage(ObjectIdentifier(suspiciousSenderPage.shown))
+            result.suspiciousSenderPage = suspiciousSenderPage
+            return result
+        }
     }
     
+    /// A suspicious sender's page as shown (`instantPageForSuspiciousSender`), kept across layouts so
+    /// the shown page's identity, and with it the page key the layout cache and the page view reuse
+    /// on, changes only when the original page does.
+    private struct SuspiciousSenderPage {
+        let original: InstantPage
+        let shown: InstantPage
+        /// Stripping left every quotable node's text as it was. Removing an inline pill drops its
+        /// label from its node, so a selection there would quote the wrong range.
+        let keepsQuotes: Bool
+        init(original: InstantPage, previous: SuspiciousSenderPage?) {
+            self.original = original
+            if let previous, previous.original === original {
+                self.shown = previous.shown
+                self.keepsQuotes = previous.keepsQuotes
+            } else {
+                let shown = instantPageForSuspiciousSender(original)
+                self.shown = shown
+                self.keepsQuotes = shown.quotableNodes.map(\.flatText) == original.quotableNodes.map(\.flatText)
+            }
+        }
+    }
     private let containerNode: ContainerNode
-    private let textNode: InteractiveTextNodeWithEntities
+    /// Clips `containerNode` to the bubble's four (possibly unequal, when merged) corner radii —
+    /// see `applyContainerCorners`. Created on first layout, since an unloaded node has no layer.
+@@ -101,6 +154,7 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
+    // materialization), so this is a straight structural compare. It runs only on the
+    // about-to-crossfade path, never on the hot same-content path.
+    private var appliedInstantPage: InstantPage?
+    private var suspiciousSenderPage: SuspiciousSenderPage?
+    // messageStableVersion is in the cache key because the synthesized instantPage content
+    // mutates between streamed AI message chunks (each chunk bumps stableVersion); without
+    // this, the cached layout would shadow newly-arrived content during streaming.
+@@ -535,7 +589,9 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
+        // (`fullInstantPage`) rendering carries the same key but a different page object, so an
+        // identity check excludes it. `originalAttribute` is Optional (it is the pending edit's
+        // attribute in the `.pendingEdit` case).
+        guard let attribute = resolved.originalAttribute, resolved.instantPage === attribute.instantPage else {
+        // A suspicious sender's shown page is a copy of the stored one, with the same paths.
+        let page = resolved.suspiciousSenderPage?.original ?? resolved.instantPage
+        guard let attribute = resolved.originalAttribute, page === attribute.instantPage else {
+            return false
+        }
+        return item.controllerInteraction.canEditMessageRichText(item.message)
+@@ -582,6 +638,7 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
+        let currentPageLayout = self.currentPageLayout
+        let currentExpandedDetails = self.currentExpandedDetails
+        let currentExpandedQuotePaths = self.currentExpandedQuotePaths
+        let currentSuspiciousSenderPage = self.suspiciousSenderPage
+        let showMoreExpandedState = self.showMoreExpanded
+        let statusLayout = ChatMessageDateAndStatusNode.asyncLayout(self.statusNode)
+        let showMoreTextLayout = TextNode.asyncLayout(self.showMoreTextNode)
+@@ -805,7 +862,15 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
 
-    private let textAccessibilityOverlayNode: TextAccessibilityOverlayNode
-    public var statusNode: ChatMessageDateAndStatusNode?
-    private var linkHighlightingNode: LinkHighlightingNode?
-    private var shimmeringNode: ShimmeringLinkNode?
-    private var textSelectionNode: TextSelectionNode?
-    
-    private var textHighlightingNodes: [LinkHighlightingNode] = []
-    
-    private var cachedChatMessageText: CachedChatMessageText?
-    
-    private var textSelectionState: Promise<ChatControllerSubject.MessageOptionsInfo.SelectionState>?
-    
-    private var linkPreviewHighlightText: String?
-    private var linkPreviewOptionsDisposable: Disposable?
-    private var linkPreviewHighlightingNodes: [LinkHighlightingNode] = []
-    
-    private var quoteHighlightingNode: LinkHighlightingNode?
-    
-    private var linkProgressRange: NSRange?
-    private var linkProgressView: TextLoadingEffectView?
-    private var linkProgressDisposable: Disposable?
-    
-    private var codeHighlightState: (id: EngineMessage.Id, specs: [CachedMessageSyntaxHighlight.Spec], disposable: Disposable)?
-    
-    private var expandedBlockIds: Set<Int> = Set()
-    private var appliedExpandedBlockIds: Set<Int>?
-    private var displayContentsUnderSpoilers: (value: Bool, location: CGPoint?) = (false, nil)
-    
-    private var isSummaryApplied = false
+                // Resolve the node-local expand state for THIS message (collapsed for any other).
+                let showMoreExpanded = (showMoreExpandedState?.messageId == item.message.id) ? (showMoreExpandedState?.value ?? false) : false
+                let resolvedContent = ChatMessageRichDataBubbleContentNode.resolvedRichDataContent(item: item, showMoreExpanded: showMoreExpanded)
+                var resolvedContent = ChatMessageRichDataBubbleContentNode.resolvedRichDataContent(item: item, showMoreExpanded: showMoreExpanded)
+                // A suspicious sender's links show as text and their buttons not at all, as in a plain
+                // message from them (`ChatMessageTextBubbleContentNode`).
+                var suspiciousSenderPage: SuspiciousSenderPage?
+                if let content = resolvedContent, item.associatedData.isSuspiciousPeer, item.message.effectivelyIncoming(item.context.account.peerId) {
+                    let page = SuspiciousSenderPage(original: content.instantPage, previous: currentSuspiciousSenderPage)
+                    suspiciousSenderPage = page
+                    resolvedContent = content.showing(page)
+                }
 
-    private var textRevealLink: SharedDisplayLinkDriver.Link?
-    private var textRevealController: TextRevealController?
-    
-    private var relativeDateTimer: (timer: SwiftSignalKit.Timer, period: Int32)?
-    
-    override public var visibility: ListViewItemNodeVisibility {
-        didSet {
-            if oldValue != self.visibility {
-                switch self.visibility {
-                case .none:
-                    self.textNode.visibilityRect = nil
-                case let .visible(_, subRect):
-                    var subRect = subRect
-                    subRect.origin.x = 0.0
-                    subRect.size.width = 10000.0
-                    self.textNode.visibilityRect = subRect
+                if let resolvedContent {
+                    #if DEBUG && false
+@@ -1341,6 +1406,7 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
+                            codeHighlightState.disposable.dispose()
+                        }
+
+                        self.suspiciousSenderPage = suspiciousSenderPage
+                        if let pageLayout, let pageWebpage, let resolvedContent {
+                            self.currentPageLayout = (
+                                suggestedBoundingWidth,
+@@ -1355,10 +1421,10 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode
+                                cachedMessageSyntaxHighlight,
+                                pageLayout
+                            )
+                            if case .original = resolvedContent.key, !resolvedContent.isTranslated, !resolvedContent.isTranslating {
+                                if self.quotablePage !== resolvedContent.instantPage {
+                                    self.quotablePage = resolvedContent.instantPage
+                                    self.quotableNodes = resolvedContent.instantPage.quotableNodes
+                            if case .original = resolvedContent.key, !resolvedContent.isTranslated, !resolvedContent.isTranslating, let quotablePage = resolvedContent.quotablePage {
+                                if self.quotablePage !== quotablePage {
+                                    self.quotablePage = quotablePage
+                                    self.quotableNodes = quotablePage.quotableNodes
+                                }
+                            } else {
+                                self.quotablePage = nil
+‎submodules/TelegramUI/Components/Chat/ChatMessageStickerItemNode/Sources/ChatMessageStickerItemNode.swift‎
++5
+Lines changed: 5 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -720,6 +720,11 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                 }
             }
-        }
-    }
-    
-    required public init(lottieSettings: LottieRenderingSettings) {
-        self.containerNode = ContainerNode()
-        self.containerNode.clipsToBounds = true
-        
-        self.textNode = InteractiveTextNodeWithEntities()
-        
-        self.textAccessibilityOverlayNode = TextAccessibilityOverlayNode()
-        
-        super.init(lottieSettings: lottieSettings)
-        
-        self.addSubnode(self.containerNode)
-        
-        self.textNode.textNode.isUserInteractionEnabled = true
-        self.textNode.textNode.contentMode = .topLeft
-        self.textNode.textNode.contentsScale = UIScreenScale
-        self.textNode.textNode.displaysAsynchronously = true
-        //self.containerNode.addSubnode(self.textAccessibilityOverlayNode)
-        self.containerNode.addSubnode(self.textNode.textNode)
-        
-        self.textAccessibilityOverlayNode.openUrl = { [weak self] url in
-            self?.item?.controllerInteraction.openUrl(ChatControllerInteraction.OpenUrl(url: url, concealed: false, external: false))
-        }
-        
-        self.textNode.textNode.requestToggleBlockCollapsed = { [weak self] blockId in
-            guard let self, let item = self.item else {
-                return
-            }
-            if self.expandedBlockIds.contains(blockId) {
-                self.expandedBlockIds.remove(blockId)
-            } else {
-                self.expandedBlockIds.insert(blockId)
-            }
-            item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
-        }
-        self.textNode.textNode.requestDisplayContentsUnderSpoilers = { [weak self] location in
-            guard let self else {
-                return
-            }
-            
-            cancelParentGestures(view: self.view)
-            
-            var mappedLocation: CGPoint?
-            if let location {
-                mappedLocation = self.textNode.textNode.layer.convert(location, to: self.layer)
-            }
-            self.updateDisplayContentsUnderSpoilers(value: true, at: mappedLocation)
-        }
-        self.textNode.textNode.canHandleTapAtPoint = { [weak self] point in
-            guard let self else {
-                return false
-            }
-            let localPoint = self.textNode.textNode.view.convert(point, to: self.view)
-            let action = self.tapActionAtPoint(localPoint, gesture: .tap, isEstimating: true)
-            if case .none = action.content {
-                return true
-            } else {
-                return false
-            }
-        }
-    }
 
-    required public init?(coder aDecoder: NSCoder) {
+            // A suspicious sender's buttons are not shown, as their links are not.
+            if item.associatedData.isSuspiciousPeer && item.message.effectivelyIncoming(item.context.account.peerId) {
+                replyMarkup = nil
+            }
+            
+            var hasReply = replyMessage != nil || replyForward != nil || replyStory != nil
+            if case let .peer(peerId) = item.chatLocation, (peerId == replyMessage?.id.peerId || item.message.threadId == 1), let peer = item.message.peers[item.message.id.peerId], peer.isForumOrMonoForum, item.message.associatedThreadInfo != nil {
+                if let threadId = item.message.threadId, let replyMessage = replyMessage, Int64(replyMessage.id.id) == threadId {
+‎submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift‎
++1
+-8
+Lines changed: 1 addition & 8 deletions
+Original file line number	Diff line number	Diff line change
+@@ -442,14 +442,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
+
+
+                if incoming && item.associatedData.isSuspiciousPeer, let entities = messageEntities {
+                    messageEntities = entities.filter { entity in
+                        switch entity.type {
+                        case .Url, .TextUrl, .Mention, .TextMention, .Hashtag, .Email, .BankCard, .TonAddress:
+                            return false
+                        default:
+                            return true
+                        }
+                    }
+                    messageEntities = entities.filter(\.isShownFromSuspiciousPeer)
+                }
+
+                var formattedDateUpdatePeriod: Int32?
+‎submodules/TelegramUI/Components/Chat/ChatMessageWebpageBubbleContentNode/Sources/ChatMessageWebpageBubbleContentNode.swift‎
++20
+-4
+Lines changed: 20 additions & 4 deletions
+Original file line number	Diff line number	Diff line change
+@@ -66,7 +66,7 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
+                                }
+                            }
+
+                            if shouldOpenUrl {
+                            if shouldOpenUrl && !strongSelf.isFromSuspiciousSender(item) {
+                                var isConcealed = true
+                                if item.message.text.contains(content.url) {
+                                    isConcealed = false
+@@ -95,7 +95,7 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
+                    openChatMessageMode = .automaticPlayback
+                }
+                if !item.controllerInteraction.openMessage(item.message, OpenMessageParams(mode: openChatMessageMode)) {
+                    if let webPage = strongSelf.webPage, case let .Loaded(content) = webPage.content {
+                    if !strongSelf.isFromSuspiciousSender(item), let webPage = strongSelf.webPage, case let .Loaded(content) = webPage.content {
+                        var isConcealed = true
+                        if item.message.text.contains(content.url) {
+                            isConcealed = false
+@@ -117,6 +117,9 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
+        }
+        self.contentNode.activateAction = { [weak self] in
+            if let strongSelf = self, let item = strongSelf.item {
+                if strongSelf.isFromSuspiciousSender(item) {
+                    return
+                }
+                if let _ = item.message.adAttribute {
+                    item.controllerInteraction.activateAdAction(item.message.id, strongSelf.contentNode.makeProgress(), false, false)
+                } else {
+@@ -160,8 +163,7 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
+                return ChatMessageBubbleContentTapAction(content: .none)
+            }
+
+            let incoming = item.message.effectivelyIncoming(item.context.account.peerId)
+            if incoming && item.associatedData.isSuspiciousPeer {
+            if self.isFromSuspiciousSender(item) {
+                return ChatMessageBubbleContentTapAction(content: .none)
+            }
+
+@@ -193,6 +195,12 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
         fatalError("init(coder:) has not been implemented")
     }
-    
-    deinit {
-        self.linkPreviewOptionsDisposable?.dispose()
-        self.linkProgressDisposable?.dispose()
-        self.codeHighlightState?.disposable.dispose()
-        self.relativeDateTimer?.timer.invalidate()
+
+    /// A suspicious sender's link preview opens nothing, as their links do not
+    /// (`ChatMessageItemAssociatedData.isSuspiciousPeer`).
+    private func isFromSuspiciousSender(_ item: ChatMessageBubbleContentItem) -> Bool {
+        return item.associatedData.isSuspiciousPeer && item.message.effectivelyIncoming(item.context.account.peerId)
     }
     
     override public func asyncLayoutContent() -> (_ item: ChatMessageBubbleContentItem, _ layoutConstants: ChatMessageItemLayoutConstants, _ preparePosition: ChatMessageBubblePreparePosition, _ messageSelection: Bool?, _ constrainedSize: CGSize, _ avatarInset: CGFloat) -> (ChatMessageBubbleContentProperties, CGSize?, CGFloat, (CGSize, ChatMessageBubbleContentPosition) -> (CGFloat, (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void))) {
-            // МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ
-        if let text = self.cachedChatMessageText?.text, text.hasPrefix("/soft ") {
-            return { _, _, _, _, _, _ in
-                let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 0.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
-                return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { _, _ in
-                    return (300.0, { _ in (CGSize(width: 280.0, height: 400.0), { _, _, _ in }) })
-                })
+        let currentWebpage = self.webPage
+        let currentContentNodeLayout = self.contentNode.asyncLayout(displayGiftIcon: true)
+@@ -597,6 +605,14 @@ public final class ChatMessageWebpageBubbleContentNode: ChatMessageBubbleContent
+                displayLine = true
             }
+
+            // A suspicious sender's link preview opens nothing, so it offers no button either, and its
+            // text shows links as plain text, as their message does.
+            if item.associatedData.isSuspiciousPeer && item.message.effectivelyIncoming(item.context.account.peerId) {
+                actionTitle = nil
+                actionIcon = nil
+                entities = entities?.filter(\.isShownFromSuspiciousPeer)
+            }
+            
+            let (initialWidth, continueLayout) = contentNodeLayout(item.presentationData, item.controllerInteraction.automaticMediaDownloadSettings, item.associatedData, item.attributes, item.context, item.controllerInteraction, item.message, item.read, item.chatLocation, title, titleBadge, subtitle, text, entities, mediaAndFlags, badge, actionIcon, actionTitle, displayLine, layoutConstants, preparePosition, constrainedSize, item.controllerInteraction.presentationContext.animationCache, item.controllerInteraction.presentationContext.animationRenderer)
+
+            let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 8.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
+‎submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift‎
++7
+Lines changed: 7 additions & 0 deletions
+Original file line number	Diff line number	Diff line change
+@@ -575,6 +575,13 @@ final class PeerInfoHeaderNode: ASDisplayNode {
+            threadData = nil
         }
-        let previousItem = self.item
-        let textLayout = InteractiveTextNodeWithEntities.asyncLayout(self.textNode)
-        let statusLayout = ChatMessageDateAndStatusNode.asyncLayout(self.statusNode)
+
+        // A suspicious peer's emoji status is not shown, as in their chat's title: neither the icon nor
+        // the cover and colours a collectible status brings.
+        var peer = peer
+        if case let .user(user) = peer, user.emojiStatus != nil, (cachedData as? CachedUserData)?.isSuspiciousPeer == true {
+            peer = .user(user.withUpdatedEmojiStatus(nil))
+        }
         
-        let currentCachedChatMessageText = self.cachedChatMessageText
-        let expandedBlockIds = self.expandedBlockIds
-        let displayContentsUnderSpoilers = self.displayContentsUnderSpoilers
-        let currentMaxGlyphCount: Int? = self.textRevealController?.currentGlyphCount
-        let previousGlyphCount = self.textNode.textNode.cachedLayout?.attributedString?.length ?? 0
-        
-        return { [weak self] item, layoutConstants, _, _, _, _ in
-            let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 0.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
-            
-            return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
-                var topInset: CGFloat = 0.0
-                var bottomInset: CGFloat = 0.0
-                if case let .linear(top, bottom) = position {
-                    switch top {
-                    case .None:
-                        topInset = layoutConstants.text.bubbleInsets.top
-                    case let .Neighbour(_, topType, _):
-                        switch topType {
-                        case .text:
-                            topInset = layoutConstants.text.bubbleInsets.top - 2.0
-                        case .header, .footer, .media, .reactions:
-                            topInset = layoutConstants.text.bubbleInsets.top
-                        }
-                    default:
-                        topInset = layoutConstants.text.bubbleInsets.top
-                    }
-                    
-                    switch bottom {
-                    case .None:
-                        bottomInset = layoutConstants.text.bubbleInsets.bottom
-                    default:
-                        bottomInset = layoutConstants.text.bubbleInsets.bottom - 3.0
-                    }
-                }
-                
-                let message = item.message
-                
-                var incoming = item.message.effectivelyIncoming(item.context.account.peerId)
-                if let subject = item.associatedData.subject, case let .messageOptions(_, _, info) = subject {
-                    if case .forward = info {
-                        incoming = false
-                    } else if case let .link(link) = info, link.isCentered {
-                        incoming = true
-                    }
-                }
-                
-                var maxTextWidth = CGFloat.greatestFiniteMagnitude
-                for media in item.message.media {
-                    if let webpage = media as? TelegramMediaWebpage, case let .Loaded(content) = webpage.content, content.type == "telegram_background" || content.type == "telegram_theme" {
-                        maxTextWidth = layoutConstants.wallpapers.maxTextWidth
-                        break
-                    }
-                }
-                
-                let horizontalInset = layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
-                let textConstrainedSize = CGSize(width: min(maxTextWidth, constrainedSize.width - horizontalInset), height: constrainedSize.height)
-                
-                var edited = false
-                if item.attributes.updatingMedia != nil {
-                    edited = true
-                }
-                var viewCount: Int?
-                var dateReplies = 0
-                var starsCount: Int64?
-                var dateReactionsAndPeers = mergedMessageReactionsAndPeers(accountPeerId: item.context.account.peerId, accountPeer: item.associatedData.accountPeer, message: item.topMessage)
-                if item.message.isRestricted(platform: "ios", contentSettings: item.context.currentContentSettings.with { $0 }) {
-                    dateReactionsAndPeers = ([], [])
-                }
-                
-                for attribute in item.message.attributes {
-                    if let attribute = attribute as? EditedMessageAttribute {
-                        edited = !attribute.isHidden
-                    } else if let attribute = attribute as? ViewCountMessageAttribute {
-                        viewCount = attribute.count
-                    } else if let attribute = attribute as? ReplyThreadMessageAttribute, case .peer = item.chatLocation {
-                        if let channel = item.message.peers[item.message.id.peerId] as? TelegramChannel, case .group = channel.info {
-                            dateReplies = Int(attribute.count)
-                        }
-                    } else if let attribute = attribute as? PaidStarsMessageAttribute, item.message.id.peerId.namespace == Namespaces.Peer.CloudChannel {
-                        starsCount = attribute.stars.value
-                    }
-                }
-                
-                let dateFormat: MessageTimestampStatusFormat
-                if item.presentationData.isPreview {
-                    dateFormat = .full
-                } else if let subject = item.associatedData.subject, case .messageOptions = subject {
-                    dateFormat = .minimal
-                } else {
-                    dateFormat = .regular
-                }
-                let dateText = stringForMessageTimestampStatus(context: item.context, message: EngineMessage(item.message), dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData)
-                
-                let statusType: ChatMessageDateAndStatusType?
-                var displayStatus = false
-                switch position {
-                case let .linear(_, neighbor):
-                    if case .None = neighbor {
-                        displayStatus = true
-                    } else if case .Neighbour(true, _, _) = neighbor {
-                        displayStatus = true
-                    }
-                default:
-                    break
-                }
-                if case let .customChatContents(contents) = item.associatedData.subject {
-                    if case .hashTagSearch = contents.kind {
-                        displayStatus = true
-                    } else {
-                        displayStatus = false
-                    }
-                } else if !item.presentationData.chatBubbleCorners.hasTails {
-                    displayStatus = false
-                } else if case let .messageOptions(_, _, info) = item.associatedData.subject, case let .link(link) = info, link.isCentered {
-                    displayStatus = false
-                }
-                if displayStatus {
-                    if incoming {
-                        statusType = .BubbleIncoming
-                    } else {
-                        if message.flags.contains(.Failed) {
-                            statusType = .BubbleOutgoing(.Failed)
-                        } else if (message.flags.isSending && !message.isSentOrAcknowledged) || item.attributes.updatingMedia != nil {
-                            statusType = .BubbleOutgoing(.Sending)
-                        } else {
-                            statusType = .BubbleOutgoing(.Sent(read: item.read))
-                        }
-                    }
-                } else {
-                    statusType = nil
-                }
-                
-                var rawText: String
-                let attributedText: NSAttributedString
-                var messageEntities: [MessageTextEntity]?
-                
-                var mediaDuration: Double? = nil
-                var isSeekableWebMedia = false
-                var story: Stories.Item?
-                var invoice: TelegramMediaInvoice?
-                for media in item.message.media {
-                    if let file = media as? TelegramMediaFile, let duration = file.duration {
-                        mediaDuration = Double(duration)
-                    }
-                    if let media = media as? TelegramMediaInvoice, media.currency == "XTR" {
-                        invoice = media
-                    } else if let webpage = media as? TelegramMediaWebpage, case let .Loaded(content) = webpage.content, webEmbedType(content: content).supportsSeeking {
-                        isSeekableWebMedia = true
-                    } else if let storyMedia = media as? TelegramMediaStory {
-                        if let value = item.message.associatedStories[storyMedia.storyId]?.get(Stories.StoredItem.self) {
-                            if case let .item(storyValue) = value {
-                                story = storyValue
+        self.state = state
+        self.peer = peer
+        self.threadData = threadData
+‎submodules/TelegramUI/Sources/ChatControllerContentData.swift‎
++3
+-1
+Lines changed: 3 additions & 1 deletion
+Original file line number	Diff line number	Diff line change
+@@ -615,7 +615,9 @@ extension ChatControllerImpl {
+                                customSubtitle = strings.Chat_SavedMessagesStatusViewAsChats
                             }
-                        }
-                    }
-                }
-                
-                var isSummaryApplied = false
-                var isTranslating = false
-                if let invoice {
-                    rawText = invoice.description
-                } else if let story {
-                    rawText = story.text
-                    messageEntities = story.entities
-                } else {
-                    if let updatingMedia = item.attributes.updatingMedia {
-                        rawText = updatingMedia.text
-                    } else {
-                        rawText = item.message.text
-                    }
-                    
-                    for attribute in item.message.attributes {
-                        if let attribute = attribute as? TextEntitiesMessageAttribute {
-                            messageEntities = attribute.entities
-                        } else if mediaDuration == nil, let attribute = attribute as? ReplyMessageAttribute {
-                            if let replyMessage = item.message.associatedMessages[attribute.messageId] {
-                                for media in replyMessage.media {
-                                    if let file = media as? TelegramMediaFile, let duration = file.duration {
-                                        mediaDuration = Double(duration)
-                                    }
-                                    if let webpage = media as? TelegramMediaWebpage, case let .Loaded(content) = webpage.content, webEmbedType(content: content).supportsSeeking {
-                                        isSeekableWebMedia = true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    if let updatingMedia = item.attributes.updatingMedia {
-                        messageEntities = updatingMedia.entities?.entities ?? []
-                    }
-                    
-                    let translateToLanguage = item.associatedData.translateToLanguage
-                    var isSummarized = false
-                    if item.controllerInteraction.summarizedMessageIds.contains(item.message.id) {
-                        isSummarized = true
-                    }
-                    
-                    if let subject = item.associatedData.subject, case .messageOptions = subject {
-                    } else if !item.message.text.isEmpty && incoming {
-                        if translateToLanguage != nil || isSummarized {
-                            isTranslating = true
-                        }
-                        if isTranslating {
-                            if isSummarized, let attribute = item.message.attributes.first(where: { $0 is SummarizationMessageAttribute }) as? SummarizationMessageAttribute, let summary = attribute.summaryForLang(translateToLanguage) {
-                                rawText = summary.text
-                                messageEntities = summary.entities
-                                isTranslating = false
-                                isSummaryApplied = true
-                            } else if let attribute = item.message.attributes.first(where: { $0 is TranslationMessageAttribute }) as? TranslationMessageAttribute, !attribute.text.isEmpty, attribute.toLang == translateToLanguage {
-                                rawText = attribute.text
-                                messageEntities = attribute.entities
-                                if !isSummarized {
-                                    isTranslating = false
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                
-                if incoming && item.associatedData.isSuspiciousPeer, let entities = messageEntities {
-                    messageEntities = entities.filter(\.isShownFromSuspiciousPeer)
-                }
-                
-                var formattedDateUpdatePeriod: Int32?
-                if let messageEntities {
-                    for entity in messageEntities {
-                        if case let .FormattedDate(format, timestamp) = entity.type, case .relative = format {
-                            let currentTimestamp = Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
-                            let value = abs(currentTimestamp - timestamp)
-                            if value < 120 {
-                                formattedDateUpdatePeriod = 1
-                            } else if value <= 60 * 60 {
-                                formattedDateUpdatePeriod = 60
-                            } else {
-                                formattedDateUpdatePeriod = 30 * 60
-                            }
-                        }
-                    }
-                }
-                
-                var entities: [MessageTextEntity]?
-                var updatedCachedChatMessageText: CachedChatMessageText?
-                if let cached = currentCachedChatMessageText, cached.matches(text: rawText, inputEntities: messageEntities) {
-                    entities = cached.entities
-                } else {
-                    entities = messageEntities
-                    
-                    if entities == nil && (mediaDuration != nil || isSeekableWebMedia) {
-                        entities = []
-                    }
-                    
-                    if let entitiesValue = entities {
-                        var enabledTypes: EnabledEntityTypes = .all
-                        if mediaDuration != nil || isSeekableWebMedia {
-                            enabledTypes.insert(.timecode)
-                            if mediaDuration == nil {
-                                mediaDuration = 60.0 * 60.0 * 24.0
-                            }
-                        }
-                        if let result = addLocallyGeneratedEntities(rawText, enabledTypes: enabledTypes, entities: entitiesValue, mediaDuration: mediaDuration) {
-                            entities = result
-                        }
-                    } else {
-                        var generateEntities = false
-                        for media in message.media {
-                            if media is TelegramMediaImage || media is TelegramMediaFile {
-                                generateEntities = true
-                                break
-                            }
-                        }
-                        if message.id.peerId.namespace == Namespaces.Peer.SecretChat {
-                           generateEntities = true
-                        }
-                        if generateEntities {
-                            let parsedEntities = generateTextEntities(rawText, enabledTypes: .all)
-                            if !parsedEntities.isEmpty {
-                                entities = parsedEntities
-                            }
-                        }
-                    }
-                    
-                    if !item.associatedData.hasBots {
-                        messageEntities = messageEntities?.filter { $0.type != .BotCommand }
-                        entities = entities?.filter { $0.type != .BotCommand }
-                    }
-                    
-                    updatedCachedChatMessageText = CachedChatMessageText(text: rawText, inputEntities: messageEntities, entities: entities)
-                }
-                
-                
-                let messageTheme = incoming ? item.presentationData.theme.theme.chat.message.incoming : item.presentationData.theme.theme.chat.message.outgoing
-                
-                let textFont = item.presentationData.messageFont
-                
-                var codeHighlightSpecs: [CachedMessageSyntaxHighlight.Spec] = []
-                var cachedMessageSyntaxHighlight: CachedMessageSyntaxHighlight?
-                
-                if let entities {
-                    var underlineLinks = true
-                    if !messageTheme.primaryTextColor.isEqual(messageTheme.linkTextColor) {
-                        underlineLinks = false
-                    }
-                    
-                    let author = item.message.author
-                    let mainColor: UIColor
-                    var secondaryColor: UIColor? = nil
-                    var tertiaryColor: UIColor? = nil
-                    
-                    let nameColors: PeerNameColors.Colors?
-                    switch author?.nameColor {
-                    case let .preset(nameColor):
-                        nameColors = item.context.peerNameColors.get(nameColor, dark: item.presentationData.theme.theme.overallDarkAppearance)
-                    case let .collectible(collectibleColor):
-                        nameColors = collectibleColor.peerNameColors(dark: item.presentationData.theme.theme.overallDarkAppearance)
-                    default:
-                        nameColors = nil
-                    }
-                    
-                    let codeBlockTitleColor: UIColor
-                    let codeBlockAccentColor: UIColor
-                    let codeBlockBackgroundColor: UIColor
-                    var codeBlockFillColor: UIColor?
-                    if !incoming {
-                        mainColor = messageTheme.accentTextColor
-                        if let _ = nameColors?.secondary {
-                            secondaryColor = .clear
-                        }
-                        if let _ = nameColors?.tertiary {
-                            tertiaryColor = .clear
-                        }
-                        
-                        if item.presentationData.theme.theme.overallDarkAppearance {
-                            codeBlockTitleColor = .white
-                            codeBlockAccentColor = UIColor(white: 1.0, alpha: 0.5)
-                            codeBlockBackgroundColor = UIColor(white: 0.0, alpha: 0.25)
-                            // Dark themes' outgoing bubbles are coloured (the default's a light blue gradient): the
-                            // white-tinted block made the code hard to read on them.
-                            codeBlockFillColor = UIColor(white: 0.0, alpha: 0.1)
-                        } else {
-                            codeBlockTitleColor = mainColor
-                            codeBlockAccentColor = mainColor
-                            codeBlockBackgroundColor = mainColor.withMultipliedAlpha(0.1)
-                        }
-                    } else {
-                        let authorNameColor = nameColors?.main
-                        secondaryColor = nameColors?.secondary
-                        tertiaryColor = nameColors?.tertiary
-                        
-                        if let authorNameColor {
-                            mainColor = authorNameColor
-                        } else {
-                            mainColor = messageTheme.accentTextColor
-                        }
-                        
-                        codeBlockTitleColor = mainColor
-                        codeBlockAccentColor = mainColor
-                        
-                        if item.presentationData.theme.theme.overallDarkAppearance {
-                            codeBlockBackgroundColor = UIColor(white: 0.0, alpha: 0.65)
-                        } else {
-                            codeBlockBackgroundColor = UIColor(white: 0.0, alpha: 0.05)
-                        }
-                    }
-                    
-                    codeHighlightSpecs = extractMessageSyntaxHighlightSpecs(text: rawText, entities: entities)
-                    
-                    if !codeHighlightSpecs.isEmpty {
-                        for attribute in message.attributes {
-                            if let attribute = attribute as? DerivedDataMessageAttribute {
-                                if let value = attribute.data["code"]?.get(CachedMessageSyntaxHighlight.self) {
-                                    cachedMessageSyntaxHighlight = value
-                                }
-                            }
-                        }
-                    }
-                    
-                    attributedText = stringWithAppliedEntities(rawText, entities: entities, strings: item.presentationData.strings, dateTimeFormat: item.presentationData.dateTimeFormat, baseColor: messageTheme.primaryTextColor, linkColor: messageTheme.linkTextColor, baseQuoteTintColor: mainColor, baseQuoteSecondaryTintColor: secondaryColor, baseQuoteTertiaryTintColor: tertiaryColor, codeBlockTitleColor: codeBlockTitleColor, codeBlockAccentColor: codeBlockAccentColor, codeBlockBackgroundColor: codeBlockBackgroundColor, codeBlockFillColor: codeBlockFillColor, baseFont: textFont, linkFont: textFont, boldFont: item.presentationData.messageBoldFont, italicFont: item.presentationData.messageItalicFont, boldItalicFont: item.presentationData.messageBoldItalicFont, fixedFont: item.presentationData.messageFixedFont, blockQuoteFont: item.presentationData.messageBlockQuoteFont, underlineLinks: underlineLinks, message: item.message, adjustQuoteFontSize: true, cachedMessageSyntaxHighlight: cachedMessageSyntaxHighlight)
-                } else if !rawText.isEmpty {
-                    attributedText = NSAttributedString(string: rawText, font: textFont, textColor: messageTheme.primaryTextColor)
-                } else {
-                    attributedText = NSAttributedString(string: " ", font: textFont, textColor: messageTheme.primaryTextColor)
-                }
-                
-                // The custom-emoji attribute is not re-applied here: `stringWithAppliedEntities`
-                // already attached it, using ranges adjusted for the substitutions it performs
-                // (`.FormattedDate` renders to text of a different length). An entity's own offsets
-                // index `rawText`, not the string above, so indexing with them lands on the wrong
-                // characters — or out of bounds.
 
-                var customTruncationToken: ((UIFont, Bool) -> NSAttributedString?)?
-                var maximumNumberOfLines: Int = 0
-                if item.presentationData.isPreview {
-                    if item.message.groupingKey != nil {
-                        maximumNumberOfLines = 6
-                    } else if let image = item.message.media.first(where: { $0 is TelegramMediaImage }) as? TelegramMediaImage, let dimensions = image.representations.first?.dimensions {
-                        if dimensions.width > dimensions.height {
-                            maximumNumberOfLines = 9
-                        } else {
-                            maximumNumberOfLines = 6
-                        }
-                    } else if let file = item.message.media.first(where: { $0 is TelegramMediaFile }) as? TelegramMediaFile, file.isVideo || file.isAnimated, let dimensions = file.dimensions {
-                        if dimensions.width > dimensions.height {
-                            maximumNumberOfLines = 9
-                        } else {
-                            maximumNumberOfLines = 6
-                        }
-                    } else if let _ = item.message.media.first(where: { $0 is TelegramMediaWebpage }) as? TelegramMediaWebpage {
-                        maximumNumberOfLines = 9
-                    } else {
-                        maximumNumberOfLines = 12
-                    }
-                    
-                    let truncationTokenText = item.presentationData.strings.Conversation_ReadMore
-                    customTruncationToken = { baseFont, isQuote in
-                        let truncationToken = NSMutableAttributedString()
-                        if isQuote {
-                            truncationToken.append(NSAttributedString(string: "\u{2026}", font: Font.regular(baseFont.pointSize), textColor: messageTheme.primaryTextColor))
-                        } else {
-                            truncationToken.append(NSAttributedString(string: "\u{2026} ", font: Font.regular(baseFont.pointSize), textColor: messageTheme.primaryTextColor))
-                            truncationToken.append(NSAttributedString(string: truncationTokenText, font: Font.regular(baseFont.pointSize), textColor: messageTheme.accentTextColor))
-                        }
-                        return truncationToken
-                    }
-                }
-                
-                var hasDraft = false
-                if item.message.attributes.contains(where: { $0 is TypingDraftMessageAttribute }) {
-                    hasDraft = true
-                }
-                var hadDraft = false
-                if let previousItem, previousItem.message.attributes.contains(where: { $0 is TypingDraftMessageAttribute }) {
-                    hadDraft = true
-                }
-                
-                let textInsets = UIEdgeInsets(top: 2.0, left: 2.0, bottom: 5.0, right: 2.0)
-                let (textLayout, textApply) = textLayout(InteractiveTextNodeLayoutArguments(
-                    attributedString: attributedText,
-                    backgroundColor: nil,
-                    maximumNumberOfLines: maximumNumberOfLines,
-                    truncationType: .end,
-                    constrainedSize: textConstrainedSize,
-                    alignment: .natural,
-                    cutout: nil,
-                    insets: textInsets,
-                    lineColor: messageTheme.accentControlColor,
-                    displayContentsUnderSpoilers: displayContentsUnderSpoilers.value,
-                    customTruncationToken: customTruncationToken,
-                    expandedBlocks: expandedBlockIds,
-                    computeCharacterRects: true
-                ))
-                
-                var maxGlyphCount = currentMaxGlyphCount
-                if maxGlyphCount == nil && (hasDraft || hadDraft) {
-                    maxGlyphCount = previousGlyphCount
-                }
-                var clippedGlyphCountLayout: TextNodeLayout.LayoutInfo?
-                if let maxGlyphCount {
-                    clippedGlyphCountLayout = textLayout.layoutForCharacterCount(characterCount: maxGlyphCount)
-                }
-            
-                var statusSuggestedWidthAndContinue: (CGFloat, (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation) -> ChatMessageDateAndStatusNode))?
-                if let statusType = statusType {
-                    var isReplyThread = false
-                    if case .replyThread = item.chatLocation {
-                        isReplyThread = true
-                    }
-                    
-                    let trailingWidthToMeasure: CGFloat
-                    if let lastSegment = textLayout.segments.last, lastSegment.hasRTL {
-                        trailingWidthToMeasure = 10000.0
-                    } else if let lastSegment = textLayout.segments.last, lastSegment.hasBlockQuote {
-                        trailingWidthToMeasure = textLayout.size.width
-                    } else {
-                        if let clippedGlyphCountLayout {
-                            trailingWidthToMeasure = clippedGlyphCountLayout.trailingLineWidth
-                        } else {
-                            trailingWidthToMeasure = textLayout.trailingLineWidth
-                        }
-                    }
-                    
-                    let dateLayoutInput: ChatMessageDateAndStatusNode.LayoutInput
-                    dateLayoutInput = .trailingContent(contentWidth: trailingWidthToMeasure, reactionSettings: ChatMessageDateAndStatusNode.TrailingReactionSettings(displayInline: shouldDisplayInlineDateReactions(message: EngineMessage(item.message), isPremium: item.associatedData.isPremium, forceInline: item.associatedData.forceInlineReactions), preferAdditionalInset: false))
-                    
-                    statusSuggestedWidthAndContinue = statusLayout(ChatMessageDateAndStatusNode.Arguments(
-                        context: item.context,
-                        presentationData: item.presentationData,
-                        edited: edited && !item.presentationData.isPreview,
-                        impressionCount: !item.presentationData.isPreview ? viewCount : nil,
-                        dateText: dateText,
-                        type: statusType,
-                        layoutInput: dateLayoutInput,
-                        constrainedSize: textConstrainedSize,
-                        availableReactions: item.associatedData.availableReactions,
-                        savedMessageTags: item.associatedData.savedMessageTags,
-                        reactions: item.presentationData.isPreview ? [] : dateReactionsAndPeers.reactions,
-                        reactionPeers: dateReactionsAndPeers.peers,
-                        displayAllReactionPeers: item.message.id.peerId.namespace == Namespaces.Peer.CloudUser,
-                        areReactionsTags: item.topMessage.areReactionsTags(accountPeerId: item.context.account.peerId),
-                        areStarReactionsEnabled: item.associatedData.areStarReactionsEnabled,
-                        messageEffect: item.topMessage.messageEffect(availableMessageEffects: item.associatedData.availableMessageEffects),
-                        replyCount: dateReplies,
-                        starsCount: starsCount,
-                        isPinned: item.message.tags.contains(.pinned) && (!item.associatedData.isInPinnedListMode || isReplyThread),
-                        hasAutoremove: item.message.isSelfExpiring,
-                        canViewReactionList: canViewMessageReactionList(message: EngineMessage(item.topMessage)),
-                        animationCache: item.controllerInteraction.presentationContext.animationCache,
-                        animationRenderer: item.controllerInteraction.presentationContext.animationRenderer
-                    ))
-                }
-                
-                var textFrame = CGRect(origin: CGPoint(x: -textInsets.left, y: -textInsets.top), size: textLayout.size)
+                            strongSelf.state.chatTitleContent = .peer(peerView: ChatTitleContent.PeerData(peerView: peerView), customTitle: nil, customSubtitle: customSubtitle, onlineMemberCount: onlineMemberCount, isScheduledMessages: isScheduledMessages, isMuted: nil, customMessageCount: nil, hidePeerStatus: false, isEnabled: hasPeerInfo)
+                            // A suspicious peer's emoji status is not shown, as their links are not.
+                            let hidePeerStatus = (peerView.cachedData as? CachedUserData)?.isSuspiciousPeer ?? false
+                            strongSelf.state.chatTitleContent = .peer(peerView: ChatTitleContent.PeerData(peerView: peerView), customTitle: nil, customSubtitle: customSubtitle, onlineMemberCount: onlineMemberCount, isScheduledMessages: isScheduledMessages, isMuted: nil, customMessageCount: nil, hidePeerStatus: hidePeerStatus, isEnabled: hasPeerInfo)
 
-                var textFrameWithoutInsets = CGRect(origin: CGPoint(x: textFrame.origin.x + textInsets.left, y: textFrame.origin.y + textInsets.top), size: CGSize(width: textFrame.width - textInsets.left - textInsets.right, height: textFrame.height - textInsets.top - textInsets.bottom))
-                
-                textFrame = textFrame.offsetBy(dx: layoutConstants.text.bubbleInsets.left, dy: topInset)
-                let realTextFrame = textFrame
-                
-                if let clippedGlyphCountLayout {
-                    textFrame.size = clippedGlyphCountLayout.size
-                    textFrameWithoutInsets.size = CGSize(width: textFrame.width - textInsets.left - textInsets.right, height: textFrame.height - textInsets.top - textInsets.bottom)
-                }
-                
-                textFrameWithoutInsets = textFrameWithoutInsets.offsetBy(dx: layoutConstants.text.bubbleInsets.left, dy: topInset)
-                
-                var suggestedBoundingWidth: CGFloat = textFrameWithoutInsets.width
-                if let statusSuggestedWidthAndContinue = statusSuggestedWidthAndContinue, !hasDraft {
-                    suggestedBoundingWidth = max(suggestedBoundingWidth, statusSuggestedWidthAndContinue.0)
-                }
-                let sideInsets = layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
-                suggestedBoundingWidth += sideInsets
-                
-                return (suggestedBoundingWidth, { [weak self] boundingWidth in
-                    var boundingSize: CGSize
-                    
-                    let statusSizeAndApply = statusSuggestedWidthAndContinue?.1(boundingWidth - sideInsets)
-                    
-                    boundingSize = textFrameWithoutInsets.size
-                    if let statusSizeAndApply = statusSizeAndApply, !hasDraft {
-                        boundingSize.height += statusSizeAndApply.0.height
-                    }
+                            let imageOverride: AvatarNodeImageOverride?
+                            if context.account.peerId == peer.id {
+‎submodules/TelegramUI/Sources/ChatHistoryListNode.swift‎
++18
+-6
+Lines changed: 18 additions & 6 deletions
+Original file line number	Diff line number	Diff line change
+@@ -581,6 +581,10 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
 
-                    boundingSize.width += layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
-                    
-                    boundingSize.height += topInset + bottomInset
-                    
-                    return (boundingSize, { [weak self] animation, synchronousLoads, itemApply in
-                        if let strongSelf = self {
-                            strongSelf.item = item
-                            if let updatedCachedChatMessageText = updatedCachedChatMessageText {
-                                strongSelf.cachedChatMessageText = updatedCachedChatMessageText
-                            }
-                            
-                            var previousAnimateGlyphCount: Int?
-                            if hasDraft || hadDraft {
-                                previousAnimateGlyphCount = strongSelf.textNode.textNode.cachedLayout?.attributedString?.length ?? 0
-                            }
-                            
-                            strongSelf.textNode.textNode.displaysAsynchronously = !item.presentationData.isPreview
-                            animation.animator.updatePosition(layer: strongSelf.containerNode.layer, position: CGRect(origin: CGPoint(), size: boundingSize).center, completion: nil)
-                            animation.animator.updateBounds(layer: strongSelf.containerNode.layer, bounds: CGRect(origin: CGPoint(), size: boundingSize), completion: nil)
-                            
-                            if let formattedDateUpdatePeriod {
-                                if strongSelf.relativeDateTimer?.period != formattedDateUpdatePeriod {
-                                    strongSelf.relativeDateTimer?.timer.invalidate()
-                                    strongSelf.relativeDateTimer = nil
-                                }
-                                strongSelf.relativeDateTimer = (SwiftSignalKit.Timer(timeout: Double(formattedDateUpdatePeriod), repeat: true, completion: { [weak self] in
-                                    self?.requestFullUpdate?(ControlledTransition(duration: 0.15, curve: .easeInOut, interactive: false))
-                                }, queue: Queue.mainQueue()), formattedDateUpdatePeriod)
-                                strongSelf.relativeDateTimer?.timer.start()
-                            } else if let (timer, _) = strongSelf.relativeDateTimer {
-                                strongSelf.relativeDateTimer = nil
-                                timer.invalidate()
-                            }
-                            
-                            if strongSelf.isSummaryApplied != isSummaryApplied {
-                                strongSelf.isSummaryApplied = isSummaryApplied
-                                itemApply?.setInvertOffsetDirection()
-                                
-                                if let snapshotView = strongSelf.textNode.textNode.view.snapshotContentTree() {
-                                    strongSelf.view.addSubview(snapshotView)
-                                    
-                                    snapshotView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, removeOnCompletion: false, completion: { _ in
-                                        snapshotView.removeFromSuperview()
-                                    })
-                                    strongSelf.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
-                                }
-                            }
-                            if strongSelf.appliedExpandedBlockIds != nil && strongSelf.appliedExpandedBlockIds != strongSelf.expandedBlockIds {
-                                itemApply?.setInvertOffsetDirection()
-                            }
-                            strongSelf.appliedExpandedBlockIds = strongSelf.expandedBlockIds
-                            
-                            var spoilerExpandRect: CGRect?
-                            if let location = strongSelf.displayContentsUnderSpoilers.location {
-                                strongSelf.displayContentsUnderSpoilers.location = nil
-                                
-                                let mappedLocation = CGPoint(x: location.x - textFrame.minX, y: location.y - textFrame.minY)
-                                
-                                let getDistance: (CGPoint, CGPoint) -> CGFloat = { a, b in
-                                    let v = CGPoint(x: a.x - b.x, y: a.y - b.y)
-                                    return sqrt(v.x * v.x + v.y * v.y)
-                                }
-                                
-                                var maxDistance: CGFloat = getDistance(mappedLocation, CGPoint(x: 0.0, y: 0.0))
-                                maxDistance = max(maxDistance, getDistance(mappedLocation, CGPoint(x: textFrame.width, y: 0.0)))
-                                maxDistance = max(maxDistance, getDistance(mappedLocation, CGPoint(x: textFrame.width, y: textFrame.height)))
-                                maxDistance = max(maxDistance, getDistance(mappedLocation, CGPoint(x: 0.0, y: textFrame.height)))
-                                
-                                let mappedSize = CGSize(width: maxDistance * 2.0, height: maxDistance * 2.0)
-                                spoilerExpandRect = mappedSize.centered(around: mappedLocation)
-                            }
-                            
-                            let _ = textApply(InteractiveTextNodeWithEntities.Arguments(
-                                context: item.context,
-                                cache: item.controllerInteraction.presentationContext.animationCache,
-                                renderer: item.controllerInteraction.presentationContext.animationRenderer,
-                                placeholderColor: messageTheme.mediaPlaceholderColor,
-                                attemptSynchronous: synchronousLoads,
-                                textColor: messageTheme.primaryTextColor,
-                                spoilerEffectColor: messageTheme.secondaryTextColor,
-                                applyArguments: InteractiveTextNode.ApplyArguments(
-                                    animation: animation,
-                                    spoilerTextColor: messageTheme.primaryTextColor,
-                                    spoilerEffectColor: messageTheme.secondaryTextColor,
-                                    areContentAnimationsEnabled: item.context.sharedContext.energyUsageSettings.loopEmoji,
-                                    spoilerExpandRect: spoilerExpandRect,
-                                    crossfadeContents: { [weak strongSelf] sourceView in
-                                        guard let strongSelf else {
-                                            return
-                                        }
-                                        if let textNodeContainer = strongSelf.textNode.textNode.view.superview {
-                                            sourceView.frame = CGRect(origin: strongSelf.textNode.textNode.frame.origin, size: sourceView.bounds.size)
-                                            textNodeContainer.addSubview(sourceView)
-                                            
-                                            sourceView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.12, removeOnCompletion: false, completion: { [weak sourceView] _ in
-                                                sourceView?.removeFromSuperview()
-                                            })
-                                            strongSelf.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.1)
-                                        }
-                                    }
-                                )
-                            ))
-                            animation.animator.updatePosition(layer: strongSelf.textNode.textNode.layer, position: realTextFrame.center, completion: nil)
-                            animation.animator.updateBounds(layer: strongSelf.textNode.textNode.layer, bounds: CGRect(origin: CGPoint(), size: realTextFrame.size), completion: nil)
-                            
-                            
-                            switch strongSelf.visibility {
-                            case .none:
-                                strongSelf.textNode.visibilityRect = nil
-                            case let .visible(_, subRect):
-                                var subRect = subRect
-                                subRect.origin.x = 0.0
-                                subRect.size.width = 10000.0
-                                strongSelf.textNode.visibilityRect = subRect
-                            }
-                            
-                            if let textSelectionNode = strongSelf.textSelectionNode {
-                                let shouldUpdateLayout = textSelectionNode.frame.size != textFrame.size
-                                textSelectionNode.frame = textFrame
-                                textSelectionNode.highlightAreaNode.frame = textFrame
-                                if shouldUpdateLayout {
-                                    textSelectionNode.updateLayout()
-                                }
-                            }
-                            strongSelf.textAccessibilityOverlayNode.frame = textFrame
-                    
-                            let showTextAsPlaceholder = item.associatedData.showTextAsPlaceholder
-                            if showTextAsPlaceholder {
-                                isTranslating = true
-                            }
-                            strongSelf.updateIsTranslating(isTranslating, showTextAsPlaceholder: showTextAsPlaceholder)
-                            
-                            if let statusSizeAndApply {
-                                let statusNode = statusSizeAndApply.1(strongSelf.statusNode == nil ? .None : animation)
-                                let statusFrame = CGRect(origin: CGPoint(x: textFrameWithoutInsets.minX, y: textFrameWithoutInsets.maxY), size: statusSizeAndApply.0)
-                                
-                                if strongSelf.statusNode !== statusNode {
-                                    strongSelf.statusNode?.removeFromSupernode()
-                                    strongSelf.statusNode = statusNode
-                                    
-                                    strongSelf.addSubnode(statusNode)
-                                    
-                                    statusNode.reactionSelected = { [weak strongSelf] _, value, sourceView in
-                                        guard let strongSelf, let item = strongSelf.item else {
-                                            return
-                                        }
-                                        item.controllerInteraction.updateMessageReaction(item.topMessage, .reaction(value), false, sourceView)
-                                    }
-                                    statusNode.openReactionPreview = { [weak strongSelf] gesture, sourceNode, value in
-                                        guard let strongSelf, let item = strongSelf.item else {
-                                            gesture?.cancel()
-                                            return
-                                        }
-                                        
-                                        item.controllerInteraction.openMessageReactionContextMenu(item.topMessage, sourceNode, gesture, value)
-                                    }
-                                    statusNode.frame = statusFrame
-                                } else {
-                                    animation.animator.updatePosition(layer: statusNode.layer, position: statusFrame.center, completion: nil)
-                                    animation.animator.updateBounds(layer: statusNode.layer, bounds: CGRect(origin: CGPoint(), size: statusFrame.size), completion: nil)
-                                }
-                            } else if let statusNode = strongSelf.statusNode {
-                                strongSelf.statusNode = nil
-                                statusNode.removeFromSupernode()
-                            }
-                            
-                            if let forwardInfo = item.message.forwardInfo, forwardInfo.flags.contains(.isImported), let statusNode = strongSelf.statusNode {
-                                statusNode.pressed = {
-                                    guard let strongSelf = self, let statusNode = strongSelf.statusNode else {
-                                        return
-                                    }
-                                    item.controllerInteraction.displayImportedMessageTooltip(statusNode)
-                                }
-                            } else {
-                                strongSelf.statusNode?.pressed = nil
-                            }
-                            
-                            if let subject = item.associatedData.subject, case let .messageOptions(_, _, info) = subject {
-                                if case let .reply(info) = info {
-                                    if strongSelf.textSelectionNode == nil {
-                                        strongSelf.updateIsExtractedToContextPreview(true)
-                                        if let initialQuote = info.quote, item.message.id == initialQuote.messageId {
-                                            let nsString = item.message.text as NSString
-                                            let subRange = nsString.range(of: initialQuote.text)
-                                            if subRange.location != NSNotFound {
-                                                strongSelf.beginTextSelection(range: subRange, displayMenu: true)
-                                            }
-                                        }
-                                        
-                                        if strongSelf.textSelectionState == nil {
-                                            if let textSelectionNode = strongSelf.textSelectionNode {
-                                                let range = textSelectionNode.getSelection()
-                                                strongSelf.textSelectionState = Promise(strongSelf.getSelectionState(range: range))
-                                            } else {
-                                                strongSelf.textSelectionState = Promise(strongSelf.getSelectionState(range: nil))
-                                            }
-                                        }
-                                        if let textSelectionState = strongSelf.textSelectionState {
-                                            info.selectionState.set(textSelectionState.get())
-                                        }
-                                    }
-                                } else if case let .link(link) = info {
-                                    if strongSelf.linkPreviewOptionsDisposable == nil {
-                                        strongSelf.linkPreviewOptionsDisposable = (link.options
-                                        |> deliverOnMainQueue).startStrict(next: { [weak strongSelf] options in
-                                            guard let strongSelf else {
-                                                return
-                                            }
-                                            
-                                            if options.hasAlternativeLinks {
-                                                strongSelf.linkPreviewHighlightText = options.url
-                                                strongSelf.updateLinkPreviewTextHighlightState(text: strongSelf.linkPreviewHighlightText)
-                                            }
-                                        })
-                                    }
-                                }
-                            }
-                            
-                            strongSelf.updateLinkProgressState()
-                            if let linkPreviewHighlightText = strongSelf.linkPreviewHighlightText {
-                                strongSelf.updateLinkPreviewTextHighlightState(text: linkPreviewHighlightText)
-                            }
-                            
-                            if !codeHighlightSpecs.isEmpty {
-                                if let current = strongSelf.codeHighlightState, current.id == message.id, current.specs == codeHighlightSpecs {
-                                } else {
-                                    if let codeHighlightState = strongSelf.codeHighlightState {
-                                        strongSelf.codeHighlightState = nil
-                                        codeHighlightState.disposable.dispose()
-                                    }
-                                    
-                                    let disposable = MetaDisposable()
-                                    strongSelf.codeHighlightState = (message.id, codeHighlightSpecs, disposable)
-                                    disposable.set(asyncUpdateMessageSyntaxHighlight(engine: item.context.engine, messageId: message.id, current: cachedMessageSyntaxHighlight, specs: codeHighlightSpecs).startStrict(completed: {
-                                    }))
-                                }
-                            } else if let codeHighlightState = strongSelf.codeHighlightState {
-                                strongSelf.codeHighlightState = nil
-                                codeHighlightState.disposable.dispose()
-                            }
-                            
-                            if previousAnimateGlyphCount != nil || strongSelf.textRevealController != nil || hasDraft || hadDraft {
-                                if strongSelf.textNode.textNode.revealCharacterCount == nil {
-                                    if hasDraft {
-                                        strongSelf.statusNode?.alpha = 0.0
-                                    }
-                                    strongSelf.textNode.textNode.updateRevealCharacterCount(count: previousAnimateGlyphCount ?? 0, animated: false)
-                                }
-                                strongSelf.updateTextRevealAnimation(previousGlyphCount: previousAnimateGlyphCount ?? 0, hasDraft: hasDraft, hadDraft: hadDraft)
-                            }
+    private let maxVisibleIncomingMessageIndex = ValuePromise<MessageIndex>(ignoreRepeated: true)
+    let canReadHistory = Promise<Bool>()
+    /// The chat reads nothing while its peer is suspicious (`CachedUserData.isSuspiciousPeer`), or
+    /// may still turn out to be: a non-contact user whose settings have not been fetched yet, as on
+    /// the first open of a chat they started. A read cannot be taken back. From the latest history view.
+    private let holdsReadsForSender = ValuePromise<Bool>(ignoreRepeated: true)
+    private var canReadHistoryValue: Bool = false
+    private var canReadHistoryDisposable: Disposable?
+
+@@ -2321,10 +2325,18 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
+                    translateToLanguage = (normalizeTranslationLanguage(translationState.fromLang), normalizeTranslationLanguage(languageCode))
+                }
+
+                var isSuspiciousPeer = false
+                if let cachedUserData = data.cachedData as? CachedUserData, let peerStatusSettings = cachedUserData.peerStatusSettings, peerStatusSettings.flags.contains(.canBlock) || peerStatusSettings.flags.contains(.canReport) {
+                    isSuspiciousPeer = true
+                let isSuspiciousPeer = (data.cachedData as? CachedUserData)?.isSuspiciousPeer ?? false
+                var holdsReadsForSender = isSuspiciousPeer
+                if let peerId = chatLocation.peerId, peerId.namespace == Namespaces.Peer.CloudUser, peerId != context.account.peerId, (data.cachedData as? CachedUserData)?.peerStatusSettings == nil {
+                    let isContact = view.additionalData.contains(where: { entry in
+                        if case let .peerIsContact(entryPeerId, value) = entry, entryPeerId == peerId {
+                            return value
                         }
+                        return false
                     })
-                })
-            })
-        }
-    }
-    
-    private func updateTextRevealAnimation(previousGlyphCount: Int, hasDraft: Bool, hadDraft: Bool) {
-        let toCount = self.textNode.textNode.cachedLayout?.attributedString?.length ?? 0
-        let now = CACurrentMediaTime()
+                    holdsReadsForSender = !isContact
+                }
+                self?.holdsReadsForSender.set(holdsReadsForSender)
 
-        if hasDraft, let controller = self.textRevealController, controller.isFinalizing {
-            self.textRevealController = nil
-            self.textRevealLink = nil
-        }
+                let associatedData = extractAssociatedData(chatLocation: chatLocation, view: view, automaticDownloadNetworkType: networkType, preferredStoryHighQuality: preferredStoryHighQuality, animatedEmojiStickers: animatedEmojiStickers, additionalAnimatedEmojiStickers: additionalAnimatedEmojiStickers, premiumGiftStickers: premiumGiftStickers, tonGiftStickers: tonGiftStickers, subject: subject, currentlyPlayingMessageId: currentlyPlayingMessageIdAndType?.0, isCopyProtectionEnabled: isCopyProtectionEnabled, availableReactions: availableReactions, availableMessageEffects: availableMessageEffects, savedMessageTags: savedMessageTags, defaultReaction: defaultReaction.0, areStarReactionsEnabled: defaultReaction.1, isPremium: isPremium, alwaysDisplayTranscribeButton: alwaysDisplayTranscribeButton, accountPeer: accountPeer, topicAuthorId: topicAuthorId, hasBots: chatHasBots, translateToLanguage: translateToLanguage?.toLang, maxReadStoryId: maxReadStoryId, recommendedChannels: recommendedChannels, audioTranscriptionTrial: audioTranscriptionTrial, chatThemes: chatThemes, deviceContactsNumbers: deviceContactsNumbers, isInline: !rotated, showSensitiveContent: contentSettings.ignoreContentRestrictionReasons.contains("sensitive"), isSuspiciousPeer: isSuspiciousPeer, accountCountry: accountCountry)
 
-        if self.textRevealController == nil && (hasDraft || hadDraft) {
-            self.textRevealController = TextRevealController(initialRevealedCount: previousGlyphCount, initialLength: toCount)
-        }
+@@ -2681,13 +2693,13 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
 
-        guard let controller = self.textRevealController else {
-            return
-        }
+    private func beginReadHistoryManagement() {
+        let previousMaxIncomingMessageIndexByNamespace = Atomic<[MessageId.Namespace: MessageIndex]>(value: [:])
+        let readHistory = combineLatest(self.maxVisibleIncomingMessageIndex.get(), self.canReadHistory.get())
+        let readHistory = combineLatest(self.maxVisibleIncomingMessageIndex.get(), self.canReadHistory.get(), self.holdsReadsForSender.get())
 
-        if hasDraft {
-            controller.observeUpdate(latestLength: toCount, at: now)
-        } else if hadDraft {
-            controller.finalize(finalLength: toCount)
-        }
-
-        if controller.isFinalizing && controller.revealedCount >= Double(controller.latestLength) {
-            self.textRevealController = nil
-            self.textRevealLink = nil
-            self.textNode.textNode.updateRevealCharacterCount(count: nil, animated: false)
-            return
-        }
-
-        if self.textRevealLink == nil {
-            self.textRevealLink = SharedDisplayLinkDriver.shared.add { [weak self] _ in
-                guard let self else {
-                    return
-                }
-                guard let item = self.item else {
-                    self.textRevealController = nil
-                    self.textRevealLink = nil
-                    return
-                }
-                guard let controller = self.textRevealController else {
-                    self.textRevealLink = nil
-                    return
-                }
-                let now = CACurrentMediaTime()
-                let (revealedGlyphCount, isComplete) = controller.tick(now: now)
-                if isComplete {
-                    self.textRevealController = nil
-                    self.textRevealLink = nil
-
-                    self.textNode.textNode.updateRevealCharacterCount(count: nil, animated: false)
-
-                    if let statusNode = self.statusNode, !item.message.attributes.contains(where: { $0 is TypingDraftMessageAttribute }) {
-                        ContainedViewLayoutTransition.animated(duration: 0.2, curve: .easeInOut).updateAlpha(node: statusNode, alpha: 1.0)
-                    }
-
-                    self.requestFullUpdate?(ControlledTransition(duration: 0.15, curve: .easeInOut, interactive: false))
-                } else {
-                    var requestUpdate = false
-                    if let previousRevealGlyphCount = self.textNode.textNode.revealCharacterCount, previousRevealGlyphCount != revealedGlyphCount {
-                        if let cachedLayout = self.textNode.textNode.cachedLayout {
-                            if cachedLayout.sizeForCharacterCount(characterCount: previousRevealGlyphCount) != cachedLayout.sizeForCharacterCount(characterCount: revealedGlyphCount) {
-                                requestUpdate = true
-                            }
-                        } else {
-                            requestUpdate = true
-                        }
-                        self.textNode.textNode.updateRevealCharacterCount(count: revealedGlyphCount, animated: true)
-                    }
-                    if requestUpdate {
-                        self.requestFullUpdate?(ControlledTransition(duration: 0.15, curve: .easeInOut, interactive: false))
-                    }
-                }
-            }
-        }
-    }
-    
-    override public func animateInsertion(_ currentTimestamp: Double, duration: Double) {
-        self.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
-        if let statusNode = self.statusNode, statusNode.alpha != 0.0 {
-            statusNode.layer.animateAlpha(from: 0.0, to: statusNode.alpha, duration: 0.2)
-        }
-    }
-    
-    override public func animateAdded(_ currentTimestamp: Double, duration: Double) {
-        self.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
-        if let statusNode = self.statusNode, statusNode.alpha != 0.0 {
-            statusNode.layer.animateAlpha(from: 0.0, to: statusNode.alpha, duration: 0.2)
-        }
-    }
-    
-    override public func animateRemoved(_ currentTimestamp: Double, duration: Double) {
-        self.textNode.textNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
-        if let statusNode = self.statusNode, statusNode.alpha != 0.0 {
-            statusNode.layer.animateAlpha(from: statusNode.alpha, to: 0.0, duration: 0.2, removeOnCompletion: false)
-        }
-    }
-    
-    override public func tapActionAtPoint(_ point: CGPoint, gesture: TapLongTapOrDoubleTapGesture, isEstimating: Bool) -> ChatMessageBubbleContentTapAction {
-        if case .tap = gesture {
-        } else {
-            if let item = self.item, let subject = item.associatedData.subject, case .messageOptions = subject {
-                return ChatMessageBubbleContentTapAction(content: .none)
-            }
-        }
-        
-        func makeActivate(_ urlRange: NSRange?) -> (() -> Promise<Bool>?)? {
-            return { [weak self] in
-                guard let self else {
-                    return nil
-                }
-                
-                let promise = Promise<Bool>()
-                
-                self.linkProgressDisposable?.dispose()
-                
-                if self.linkProgressRange != nil {
-                    self.linkProgressRange = nil
-                    self.updateLinkProgressState()
-                }
-                
-                self.linkProgressDisposable = (promise.get() |> deliverOnMainQueue).startStrict(next: { [weak self] value in
-                    guard let self else {
-                        return
-                    }
-                    let updatedRange: NSRange? = value ? urlRange : nil
-                    if self.linkProgressRange != updatedRange {
-                        self.linkProgressRange = updatedRange
-                        self.updateLinkProgressState()
-                    }
-                })
-                
-                return promise
-            }
-        }
-        
-        let textNodeFrame = self.textNode.textNode.frame
-        let textLocalPoint = CGPoint(x: point.x - textNodeFrame.minX, y: point.y - textNodeFrame.minY)
-        if let (index, attributes) = self.textNode.textNode.attributesAtPoint(textLocalPoint) {
-            var rects: [CGRect]?
-            let possibleNames: [String] = [
-                TelegramTextAttributes.URL,
-                TelegramTextAttributes.PeerMention,
-                TelegramTextAttributes.PeerTextMention,
-                TelegramTextAttributes.BotCommand,
-                TelegramTextAttributes.Hashtag,
-                TelegramTextAttributes.Timecode,
-                TelegramTextAttributes.BankCard,
-                TelegramTextAttributes.TonAddress,
-                TelegramTextAttributes.Date
-            ]
-            for name in possibleNames {
-                if let _ = attributes[NSAttributedString.Key(rawValue: name)] {
-                    rects = self.textNode.textNode.attributeRects(name: name, at: index)
-                    break
-                }
-            }
-            
-            
-            if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Spoiler)], !self.displayContentsUnderSpoilers.value {
-                return ChatMessageBubbleContentTapAction(content: .none)
-            } else if let tonAddress = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.TonAddress)] as? TelegramTonAddress {
-                guard tonAddress.range.length == 48, tonAddress.address.utf8.count == 48,
-                      WalletContext.transferAddress(from: tonAddress.address) != nil else {
-                    return ChatMessageBubbleContentTapAction(content: .none)
-                }
-                return ChatMessageBubbleContentTapAction(content: .tonAddress(tonAddress.address), rects: self.textNode.textNode.rangeRects(in: tonAddress.range)?.rects, activate: makeActivate(tonAddress.range))
-            } else if let url = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.URL)] as? String {
-                var concealed = true
-                var urlRange: NSRange?
-                if let (attributeText, fullText, urlRangeValue) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.URL, index: index) {
-                    urlRange = urlRangeValue
-                    concealed = !doesUrlMatchText(url: url, text: attributeText, fullText: fullText)
-                }
-                
-                var content: ChatMessageBubbleContentTapAction.Content
-                if url.hasPrefix("tel:") {
-                    content = .phone(url.replacingOccurrences(of: "tel:", with: ""))
-                } else {
-                    content = .url(ChatMessageBubbleContentTapAction.Url(url: url, concealed: concealed))
-                }
-                
-                return ChatMessageBubbleContentTapAction(content: content, rects: rects, activate: makeActivate(urlRange))
-            } else if let peerMention = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.PeerMention)] as? TelegramPeerMention {
-                return ChatMessageBubbleContentTapAction(content: .peerMention(peerId: peerMention.peerId, mention: peerMention.mention, openProfile: false), rects: rects)
-            } else if let peerName = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.PeerTextMention)] as? String {
-                var urlRange: NSRange?
-                if let (_, _, urlRangeValue) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.PeerTextMention, index: index) {
-                    urlRange = urlRangeValue
-                }
-                
-                return ChatMessageBubbleContentTapAction(content: .textMention(peerName), rects: rects, activate: makeActivate(urlRange))
-            } else if let botCommand = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.BotCommand)] as? String {
-                return ChatMessageBubbleContentTapAction(content: .botCommand(botCommand), rects: rects)
-            } else if let hashtag = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Hashtag)] as? TelegramHashtag {
-                return ChatMessageBubbleContentTapAction(content: .hashtag(hashtag.peerName, hashtag.hashtag), rects: rects)
-            } else if let timecode = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Timecode)] as? TelegramTimecode {
-                return ChatMessageBubbleContentTapAction(content: .timecode(timecode.time, timecode.text), rects: rects)
-            } else if let bankCard = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.BankCard)] as? String {
-                var urlRange: NSRange?
-                if let (_, _, urlRangeValue) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.BankCard, index: index) {
-                    urlRange = urlRangeValue
-                }
-                return ChatMessageBubbleContentTapAction(content: .bankCard(bankCard), rects: rects, activate: makeActivate(urlRange))
-            } else if let pre = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Pre)] as? String {
-                return ChatMessageBubbleContentTapAction(content: .copy(pre))
-            } else if let code = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Code)] as? String {
-                return ChatMessageBubbleContentTapAction(content: .copy(code))
-            } else if let date = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Date)] as? Int32 {
-                var string = ""
-                if let (_, text, _) = self.textNode.textNode.attributeSubstringWithRange(name: TelegramTextAttributes.Date, index: index) {
-                    string = text
-                }
-                return ChatMessageBubbleContentTapAction(content: .date(date, string), rects: rects)
-            } else if let _ = attributes[NSAttributedString.Key(rawValue: "Attribute__Blockquote")] {
-                if let _ = self.textNode.textNode.collapsibleBlockAtPoint(textLocalPoint) {
-                    return ChatMessageBubbleContentTapAction(content: .none)
-                } else {
-                    if let text = self.textNode.textNode.attributeSubstring(name: "Attribute__Blockquote", index: index) {
-                        return ChatMessageBubbleContentTapAction(content: .copy(text.0))
-                    } else {
-                        return ChatMessageBubbleContentTapAction(content: .none)
-                    }
-                }
-            } else if let emoji = attributes[NSAttributedString.Key(rawValue: ChatTextInputAttributes.customEmoji.rawValue)] as? ChatTextInputTextCustomEmojiAttribute, let file = emoji.file {
-                return ChatMessageBubbleContentTapAction(content: .customEmoji(file))
-            } else {
-                if let item = self.item, item.message.text.count == 1, !item.presentationData.largeEmoji {
-                    let (emoji, fitz) = item.message.text.basicEmoji
-                    var emojiFile: TelegramMediaFile?
-                    
-                    emojiFile = item.associatedData.animatedEmojiStickers[emoji]?.first?.file._parse()
-                    if emojiFile == nil {
-                        emojiFile = item.associatedData.animatedEmojiStickers[emoji.strippedEmoji]?.first?.file._parse()
-                    }
-                    
-                    if let emojiFile = emojiFile {
-                        return ChatMessageBubbleContentTapAction(content: .largeEmoji(emoji, fitz, emojiFile))
-                    } else {
-                        return ChatMessageBubbleContentTapAction(content: .none)
-                    }
-                } else {
-                    return ChatMessageBubbleContentTapAction(content: .none)
-                }
-            }
-        } else {
-            if let statusNode = self.statusNode, let _ = statusNode.hitTest(self.view.convert(point, to: statusNode.view), with: nil) {
-                return ChatMessageBubbleContentTapAction(content: .ignore)
-            }
-            return ChatMessageBubbleContentTapAction(content: .none)
-        }
-    }
-    
-    override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if let statusNode = self.statusNode, statusNode.supernode != nil, let result = statusNode.hitTest(self.view.convert(point, to: statusNode.view), with: event) {
-            return result
-        }
-        return super.hitTest(point, with: event)
-    }
-    
-    private func updateIsTranslating(_ isTranslating: Bool, showTextAsPlaceholder: Bool) {
-        guard let item = self.item else {
-            return
-        }
-        var rects = self.textNode.textNode.rangeRects(in: NSRange(location: 0, length: self.textNode.textNode.cachedLayout?.attributedString?.length ?? 0))?.rects ?? []
-        if isTranslating, !rects.isEmpty {
-            if showTextAsPlaceholder {
-                self.textNode.textNode.isHidden = true
-            }
-            let shimmeringNode: ShimmeringLinkNode
-            if let current = self.shimmeringNode {
-                shimmeringNode = current
-            } else {
-                let color: UIColor
-                let isIncoming = item.message.effectivelyIncoming(item.context.account.peerId)
-                let messageTheme = item.presentationData.theme.theme.chat.message
-                if showTextAsPlaceholder {
-                    rects = rects.map { $0.insetBy(dx: 0.0, dy: 6.0 + UIScreenPixel) }
-                    if rects.count == 2 {
-                        rects[0].origin.y += 1.0
-                        rects[1].origin.y -= 1.0
-                    }
-                    color = isIncoming ? messageTheme.incoming.secondaryTextColor.withMultipliedAlpha(0.25) : messageTheme.outgoing.secondaryTextColor.withMultipliedAlpha(0.25)
-                } else {
-                    if item.presentationData.theme.theme.overallDarkAppearance {
-                        color = isIncoming ? messageTheme.incoming.primaryTextColor.withAlphaComponent(0.1) : messageTheme.outgoing.primaryTextColor.withAlphaComponent(0.1)
-                    } else {
-                        color = isIncoming ? messageTheme.incoming.accentTextColor.withAlphaComponent(0.1) : messageTheme.outgoing.secondaryTextColor.withAlphaComponent(0.1)
-                    }
-                }
-                shimmeringNode = ShimmeringLinkNode(color: color, isSkeleton: showTextAsPlaceholder)
-                shimmeringNode.updateRects(rects)
-                shimmeringNode.frame = self.textNode.textNode.frame
-                shimmeringNode.updateLayout(self.textNode.textNode.frame.size)
-                shimmeringNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
-                self.shimmeringNode = shimmeringNode
-                self.containerNode.insertSubnode(shimmeringNode, belowSubnode: self.textNode.textNode)
-            }
-        } else if let shimmeringNode = self.shimmeringNode {
-            self.shimmeringNode = nil
-            shimmeringNode.alpha = 0.0
-            shimmeringNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, completion: { [weak shimmeringNode] _ in
-                shimmeringNode?.removeFromSupernode()
-            })
-        }
-    }
-    
-    override public func updateTouchesAtPoint(_ point: CGPoint?) {
-        if let item = self.item {
-            var rects: [CGRect]?
-            var spoilerRects: [CGRect]?
-            if let point = point {
-                let textNodeFrame = self.textNode.textNode.frame
-                if let (index, attributes) = self.textNode.textNode.attributesAtPoint(CGPoint(x: point.x - textNodeFrame.minX, y: point.y - textNodeFrame.minY)) {
-                    let possibleNames: [String] = [
-                        TelegramTextAttributes.URL,
-                        TelegramTextAttributes.PeerMention,
-                        TelegramTextAttributes.PeerTextMention,
-                        TelegramTextAttributes.BotCommand,
-                        TelegramTextAttributes.Hashtag,
-                        TelegramTextAttributes.Timecode,
-                        TelegramTextAttributes.BankCard,
-                        TelegramTextAttributes.TonAddress,
-                        TelegramTextAttributes.Date
-                    ]
-                    for name in possibleNames {
-                        if let _ = attributes[NSAttributedString.Key(rawValue: name)] {
-                            rects = self.textNode.textNode.attributeRects(name: name, at: index)
-                            break
-                        }
-                    }
-                    if let tonAddress = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.TonAddress)] as? TelegramTonAddress {
-                        rects = self.textNode.textNode.rangeRects(in: tonAddress.range)?.rects
-                    }
-                    if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Spoiler)] {
-                        spoilerRects = self.textNode.textNode.attributeRects(name: TelegramTextAttributes.Spoiler, at: index)
-                    }
-                }
-            }
-            
-            if let spoilerRects = spoilerRects, !spoilerRects.isEmpty, !self.displayContentsUnderSpoilers.value {
-            } else if let rects = rects {
-                let linkHighlightingNode: LinkHighlightingNode
-                if let current = self.linkHighlightingNode {
-                    linkHighlightingNode = current
-                } else {
-                    linkHighlightingNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.linkHighlightColor : item.presentationData.theme.theme.chat.message.outgoing.linkHighlightColor)
-                    self.linkHighlightingNode = linkHighlightingNode
-                    self.containerNode.insertSubnode(linkHighlightingNode, belowSubnode: self.textNode.textNode)
-                }
-                linkHighlightingNode.frame = self.textNode.textNode.frame
-                linkHighlightingNode.updateRects(rects)
-            } else if let linkHighlightingNode = self.linkHighlightingNode {
-                self.linkHighlightingNode = nil
-                linkHighlightingNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.18, removeOnCompletion: false, completion: { [weak linkHighlightingNode] _ in
-                    linkHighlightingNode?.removeFromSupernode()
-                })
-            }
-        }
-    }
-    
-    override public func updateSearchTextHighlightState(text: String?, messages: [EngineMessage.Index]?) {
-        guard let item = self.item else {
-            return
-        }
-        let rectsSet: [[CGRect]]
-        if let text = text, let messages = messages, !text.isEmpty, messages.contains(item.message.index) {
-            rectsSet = self.textNode.textNode.textRangesRects(text: text)
-        } else {
-            rectsSet = []
-        }
-        for i in 0 ..< rectsSet.count {
-            var rects = rectsSet[i]
-            if rects.count > 1 {
-                for i in 0 ..< rects.count - 1 {
-                    let deltaY = rects[i + 1].minY - rects[i].maxY
-                    if deltaY > 0.0 && deltaY <= 2.0 {
-                        rects[i].size.height += deltaY * 0.5
-                        rects[i + 1].size.height += deltaY * 0.5
-                        rects[i + 1].origin.y -= deltaY * 0.5
-                    }
-                }
-            }
-            let textHighlightNode: LinkHighlightingNode
-            if i < self.textHighlightingNodes.count {
-                textHighlightNode = self.textHighlightingNodes[i]
-            } else {
-                textHighlightNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.textHighlightColor : item.presentationData.theme.theme.chat.message.outgoing.textHighlightColor)
-                self.textHighlightingNodes.append(textHighlightNode)
-                self.containerNode.insertSubnode(textHighlightNode, belowSubnode: self.textNode.textNode)
-            }
-            textHighlightNode.frame = self.textNode.textNode.frame
-            textHighlightNode.updateRects(rects)
-        }
-        for i in (rectsSet.count ..< self.textHighlightingNodes.count).reversed() {
-            self.textHighlightingNodes[i].removeFromSupernode()
-            self.textHighlightingNodes.remove(at: i)
-        }
-    }
-    
-    private func updateLinkPreviewTextHighlightState(text: String?) {
-        guard let item = self.item else {
-            return
-        }
-        
-        var rectsSet: [[CGRect]] = []
-        if let text = text, !text.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
-            let nsString = string as NSString
-            let range = nsString.range(of: text)
-            if range.location != NSNotFound {
-                if let rects = cachedLayout.rangeRects(in: range)?.rects, !rects.isEmpty {
-                    rectsSet = [rects]
-                }
-            }
-        }
-        for i in 0 ..< rectsSet.count {
-            let rects = rectsSet[i]
-            let textHighlightNode: LinkHighlightingNode
-            if i < self.linkPreviewHighlightingNodes.count {
-                textHighlightNode = self.linkPreviewHighlightingNodes[i]
-            } else {
-                textHighlightNode = LinkHighlightingNode(color: item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.linkHighlightColor.withMultipliedAlpha(0.5) : item.presentationData.theme.theme.chat.message.outgoing.linkHighlightColor.withMultipliedAlpha(0.5))
-                self.linkPreviewHighlightingNodes.append(textHighlightNode)
-                self.containerNode.insertSubnode(textHighlightNode, belowSubnode: self.textNode.textNode)
-            }
-            textHighlightNode.frame = self.textNode.textNode.frame
-            textHighlightNode.updateRects(rects)
-        }
-        for i in (rectsSet.count ..< self.linkPreviewHighlightingNodes.count).reversed() {
-            self.linkPreviewHighlightingNodes[i].removeFromSupernode()
-            self.linkPreviewHighlightingNodes.remove(at: i)
-        }
-    }
-    
-    private func updateLinkProgressState() {
-        guard let item = self.item else {
-            return
-        }
-        
-        let range: NSRange = self.linkProgressRange ?? NSRange(location: NSNotFound, length: 0)
-        if range.location != NSNotFound {
-            let linkProgressView: TextLoadingEffectView
-            if let current = self.linkProgressView {
-                linkProgressView = current
-            } else {
-                linkProgressView = TextLoadingEffectView(frame: CGRect())
-                self.linkProgressView = linkProgressView
-                self.containerNode.view.addSubview(linkProgressView)
-            }
-            linkProgressView.frame = self.textNode.textNode.frame
-            
-            let progressColor: UIColor = item.message.effectivelyIncoming(item.context.account.peerId) ? item.presentationData.theme.theme.chat.message.incoming.linkHighlightColor : item.presentationData.theme.theme.chat.message.outgoing.linkHighlightColor
-            
-            linkProgressView.update(color: progressColor, textNode: self.textNode.textNode, range: range)
-        } else {
-            if let linkProgressView = self.linkProgressView {
-                self.linkProgressView = nil
-                linkProgressView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak linkProgressView] _ in
-                    linkProgressView?.removeFromSuperview()
-                })
-            }
-        }
-    }
-    
-    public func animateQuoteTextHighlightIn(sourceFrame: CGRect, transition: ContainedViewLayoutTransition) -> CGRect? {
-        if let quoteHighlightingNode = self.quoteHighlightingNode {
-            var currentRect = CGRect()
-            for rect in quoteHighlightingNode.rects {
-                if currentRect.isEmpty {
-                    currentRect = rect
-                } else {
-                    currentRect = currentRect.union(rect)
-                }
-            }
-            if !currentRect.isEmpty {
-                currentRect = currentRect.insetBy(dx: -quoteHighlightingNode.inset, dy: -quoteHighlightingNode.inset)
-                let innerRect = currentRect.offsetBy(dx: quoteHighlightingNode.frame.minX, dy: quoteHighlightingNode.frame.minY)
-                
-                quoteHighlightingNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.1, delay: 0.04)
-                
-                let fromScale = CGPoint(x: sourceFrame.width / innerRect.width, y: sourceFrame.height / innerRect.height)
-                
-                var fromTransform = CATransform3DIdentity
-                let fromOffset = CGPoint(x: sourceFrame.midX - innerRect.midX, y: sourceFrame.midY - innerRect.midY)
-                
-                fromTransform = CATransform3DTranslate(fromTransform, fromOffset.x, fromOffset.y, 0.0)
-                
-                fromTransform = CATransform3DTranslate(fromTransform, -quoteHighlightingNode.bounds.width * 0.5 + currentRect.midX, -quoteHighlightingNode.bounds.height * 0.5 + currentRect.midY, 0.0)
-                fromTransform = CATransform3DScale(fromTransform, fromScale.x, fromScale.y, 1.0)
-                fromTransform = CATransform3DTranslate(fromTransform, quoteHighlightingNode.bounds.width * 0.5 - currentRect.midX, quoteHighlightingNode.bounds.height * 0.5 - currentRect.midY, 0.0)
-                
-                quoteHighlightingNode.transform = fromTransform
-                transition.updateTransform(node: quoteHighlightingNode, transform: CGAffineTransformIdentity)
-                
-                return currentRect.offsetBy(dx: quoteHighlightingNode.frame.minX, dy: quoteHighlightingNode.frame.minY)
-            }
-        }
-        return nil
-    }
-    
-    public func getQuoteRect(quote: String, offset: Int?) -> CGRect? {
-        var rectsSet: [CGRect] = []
-        if !quote.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
-            
-            let range = findQuoteRange(string: string, quoteText: quote, offset: offset)
-            if let range, let rects = cachedLayout.rangeRects(in: range)?.rects, !rects.isEmpty {
-                rectsSet = rects
-            }
-        }
-        if !rectsSet.isEmpty {
-            var currentRect = CGRect()
-            for rect in rectsSet {
-                if currentRect.isEmpty {
-                    currentRect = rect
-                } else {
-                    currentRect = currentRect.union(rect)
-                }
-            }
-            
-            return currentRect.offsetBy(dx: self.textNode.textNode.frame.minX, dy: self.textNode.textNode.frame.minY)
-        }
-        
-        return nil
-    }
-    
-    public func updateQuoteTextHighlightState(text: String?, offset: Int?, color: UIColor, animated: Bool) {
-        var rectsSet: [CGRect] = []
-        if let text = text, !text.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
-            let quoteRange = findQuoteRange(string: string, quoteText: text, offset: offset)
-            if let quoteRange, let rects = cachedLayout.rangeRects(in: quoteRange)?.rects, !rects.isEmpty {
-                rectsSet = rects
-            }
-        }
-        if !rectsSet.isEmpty {
-            let rects = rectsSet
-            let textHighlightNode: LinkHighlightingNode
-            if let current = self.quoteHighlightingNode {
-                textHighlightNode = current
-            } else {
-                textHighlightNode = LinkHighlightingNode(color: color)
-                self.quoteHighlightingNode = textHighlightNode
-                self.containerNode.insertSubnode(textHighlightNode, belowSubnode: self.textNode.textNode)
-            }
-            textHighlightNode.frame = self.textNode.textNode.frame
-            textHighlightNode.updateRects(rects)
-        } else {
-            if let quoteHighlightingNode = self.quoteHighlightingNode {
-                self.quoteHighlightingNode = nil
-                if animated {
-                    quoteHighlightingNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak quoteHighlightingNode] _ in
-                        quoteHighlightingNode?.removeFromSupernode()
-                    })
-                } else {
-                    quoteHighlightingNode.removeFromSupernode()
-                }
-            }
-        }
-    }
-    
-    override public func willUpdateIsExtractedToContextPreview(_ value: Bool) {
-        if !value {
-            if let textSelectionNode = self.textSelectionNode {
-                self.textSelectionNode = nil
-                textSelectionNode.highlightAreaNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
-                textSelectionNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak textSelectionNode] _ in
-                    textSelectionNode?.highlightAreaNode.removeFromSupernode()
-                    textSelectionNode?.removeFromSupernode()
-                })
-            }
-        }
-    }
-    
-    override public func updateIsExtractedToContextPreview(_ value: Bool) {
-        if value {
-            if self.textSelectionNode == nil, let item = self.item, let rootNode = item.controllerInteraction.chatControllerNode() {
-                let selectionColor: UIColor
-                let knobColor: UIColor
-                if item.message.effectivelyIncoming(item.context.account.peerId) {
-                    selectionColor = item.presentationData.theme.theme.chat.message.incoming.textSelectionColor
-                    knobColor = item.presentationData.theme.theme.chat.message.incoming.textSelectionKnobColor
-                } else {
-                    selectionColor = item.presentationData.theme.theme.chat.message.outgoing.textSelectionColor
-                    knobColor = item.presentationData.theme.theme.chat.message.outgoing.textSelectionKnobColor
-                }
-                
-                let textSelectionNode = TextSelectionNode(theme: TextSelectionTheme(selection: selectionColor, knob: knobColor, isDark: item.presentationData.theme.theme.overallDarkAppearance), strings: item.presentationData.strings, textNodeOrView: .node(self.textNode.textNode), updateIsActive: { [weak self] value in
-                    self?.updateIsTextSelectionActive?(value)
-                }, present: { [weak self] c, a in
-                    guard let self, let item = self.item else {
-                        return
-                    }
-                    
-                    if let subject = item.associatedData.subject, case let .messageOptions(_, _, info) = subject, case .reply = info {
-                        item.controllerInteraction.presentControllerInCurrent(c, a)
-                    } else {
-                        item.controllerInteraction.presentGlobalOverlayController(c, a)
-                    }
-                }, rootView: { [weak rootNode] in
-                    return rootNode?.view
-                }, performAction: { [weak self] text, action in
-                    guard let strongSelf = self, let item = strongSelf.item else {
-                        return
-                    }
-                    item.controllerInteraction.performTextSelectionAction(item.message, true, text, nil, action)
-                })
-                textSelectionNode.updateRange = { [weak self] selectionRange in
-                    guard let strongSelf = self else {
-                        return
-                    }
-                    if !strongSelf.displayContentsUnderSpoilers.value, let textLayout = strongSelf.textNode.textNode.cachedLayout, textLayout.segments.contains(where: { !$0.spoilers.isEmpty }), let selectionRange {
-                        for segment in textLayout.segments {
-                            for (spoilerRange, _) in segment.spoilers {
-                                if let intersection = selectionRange.intersection(spoilerRange), intersection.length > 0 {
-                                    strongSelf.updateDisplayContentsUnderSpoilers(value: true, at: nil)
-                                    return
-                                }
-                            }
-                        }
-                    }
-                    if let textSelectionState = strongSelf.textSelectionState {
-                        textSelectionState.set(.single(strongSelf.getSelectionState(range: selectionRange)))
-                    }
-                }
-                
-                let enableCopy = (!item.associatedData.isCopyProtectionEnabled && !item.message.isCopyProtected()) || item.message.id.peerId.isVerificationCodes
-                textSelectionNode.enableCopy = enableCopy
-                
-                var enableQuote = !item.message.text.isEmpty
-                var enableOtherActions = true
-                if let subject = item.associatedData.subject, case let .messageOptions(_, _, info) = subject, case .reply = info {
-                    enableOtherActions = false
-                } else if item.controllerInteraction.canSetupReply(item.message) == .reply {
-                    //enableOtherActions = false
-                }
-                
-                if !item.controllerInteraction.canSendMessages() && !enableCopy {
-                    enableQuote = false
-                }
-                if item.message.id.peerId.namespace == Namespaces.Peer.SecretChat || item.message.id.peerId.isVerificationCodes {
-                    enableQuote = false
-                }
-                if item.message.containsSecretMedia {
-                    enableQuote = false
-                }
-                if item.associatedData.translateToLanguage != nil {
-                    enableQuote = false
-                }
-                
-                textSelectionNode.enableQuote = enableQuote
-                textSelectionNode.enableTranslate = enableOtherActions
-                textSelectionNode.enableShare = enableOtherActions && enableCopy
-                textSelectionNode.menuSkipCoordnateConversion = !enableOtherActions
-                self.textSelectionNode = textSelectionNode
-                self.containerNode.addSubnode(textSelectionNode)
-                self.containerNode.insertSubnode(textSelectionNode.highlightAreaNode, belowSubnode: self.textNode.textNode)
-                textSelectionNode.frame = self.textNode.textNode.frame
-                textSelectionNode.highlightAreaNode.frame = self.textNode.textNode.frame
-            }
-        } else {
-            if let textSelectionNode = self.textSelectionNode {
-                self.textSelectionNode = nil
-                self.updateIsTextSelectionActive?(false)
-                textSelectionNode.highlightAreaNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
-                textSelectionNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak textSelectionNode] _ in
-                    textSelectionNode?.highlightAreaNode.removeFromSupernode()
-                    textSelectionNode?.removeFromSupernode()
-                })
-            }
-            
-            if self.displayContentsUnderSpoilers.value {
-                self.updateDisplayContentsUnderSpoilers(value: false, at: nil)
-            }
-        }
-    }
-    
-    private func updateDisplayContentsUnderSpoilers(value: Bool, at location: CGPoint?) {
-        if self.displayContentsUnderSpoilers.value == value {
-            return
-        }
-        self.displayContentsUnderSpoilers = (value, location)
-        if let item = self.item {
-            item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
-        }
-    }
-    
-    override public func reactionTargetView(value: MessageReaction.Reaction) -> UIView? {
-        if let statusNode = self.statusNode, !statusNode.isHidden {
-            return statusNode.reactionView(value: value)
-        }
-        return nil
-    }
-    
-    override public func messageEffectTargetView() -> UIView? {
-        if let statusNode = self.statusNode, !statusNode.isHidden {
-            return statusNode.messageEffectTargetView()
-        }
-        return nil
-    }
-    
-    override public func getStatusNode() -> ASDisplayNode? {
-        return self.statusNode
-    }
-
-    public func animateFrom(sourceView: UIView, scrollOffset: CGFloat, widthDifference: CGFloat, transition: CombinedTransition) {
-        self.containerNode.clipsToBounds = false
-        self.containerNode.view.addSubview(sourceView)
-
-        sourceView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.1, removeOnCompletion: false, completion: { [weak sourceView] _ in
-            sourceView?.removeFromSuperview()
-        })
-        self.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.08)
-
-        let offset = CGPoint(
-            x: sourceView.frame.minX - (self.textNode.textNode.frame.minX - 0.0),
-            y: sourceView.frame.minY - (self.textNode.textNode.frame.minY - 3.0) - scrollOffset
-        )
-
-        transition.vertical.animatePositionAdditive(layer: self.textNode.textNode.layer, offset: offset, completion: { [weak self] _ in
-            guard let self else {
+        self.readHistoryDisposable.set((readHistory |> deliverOnMainQueue).startStrict(next: { [weak self] messageIndex, canRead in
+        self.readHistoryDisposable.set((readHistory |> deliverOnMainQueue).startStrict(next: { [weak self] messageIndex, canRead, holdsReadsForSender in
+            guard let strongSelf = self else {
                 return
             }
-            self.containerNode.clipsToBounds = true
-        })
-        transition.updatePosition(layer: sourceView.layer, position: CGPoint(x: sourceView.layer.position.x - offset.x, y: sourceView.layer.position.y - offset.y))
-
-        if let statusNode = self.statusNode {
-            statusNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
-            transition.horizontal.animatePositionAdditive(node: statusNode, offset: CGPoint(x: -widthDifference, y: 0.0))
-        }
-    }
-    
-    public func beginTextSelection(range: NSRange?, displayMenu: Bool = true) {
-        guard let textSelectionNode = self.textSelectionNode else {
-            return
-        }
-        guard let string = self.textNode.textNode.cachedLayout?.attributedString else {
-            return
-        }
-        let nsString = string.string as NSString
-        let range = range ?? NSRange(location: 0, length: nsString.length)
-        textSelectionNode.setSelection(range: range, displayMenu: displayMenu)
-    }
-    
-    public func cancelTextSelection() {
-        guard let textSelectionNode = self.textSelectionNode else {
-            return
-        }
-        textSelectionNode.cancelSelection()
-    }
-    
-    private func getSelectionState(range: NSRange?) -> ChatControllerSubject.MessageOptionsInfo.SelectionState {
-        var quote: ChatControllerSubject.MessageOptionsInfo.Quote?
-        if let item = self.item, let range, let selection = self.getCurrentTextSelection(customRange: range) {
-            quote = ChatControllerSubject.MessageOptionsInfo.Quote(messageId: item.message.id, text: selection.text, offset: selection.offset)
-        }
-        return ChatControllerSubject.MessageOptionsInfo.SelectionState(canQuote: true, quote: quote)
-    }
-    
-    public func getCurrentTextSelection(customRange: NSRange? = nil) -> (text: String, entities: [MessageTextEntity], offset: Int)? {
-        guard let textSelectionNode = self.textSelectionNode else {
-            return nil
-        }
-        guard let rawRange = customRange ?? textSelectionNode.getSelection() else {
-            return nil
-        }
-        guard let item = self.item else {
-            return nil
-        }
-        guard let string = self.textNode.attributedString else {
-            return nil
-        }
-        
-        func normalizedSelectionRange(_ range: NSRange, length: Int) -> NSRange {
-            let location = min(max(range.location, 0), length)
-            let upperBound = min(max(location, range.location + range.length), length)
-            return NSRange(location: location, length: upperBound - location)
-        }
-        
-        let range = normalizedSelectionRange(rawRange, length: string.length)
-        guard range.length > 0 else {
-            return nil
-        }
-
-        let nsString = string.string as NSString
-        let substring = nsString.substring(with: range)
-        let offset = range.location
-        
-        var entities: [MessageTextEntity] = []
-        if let textEntitiesAttribute = item.message.textEntitiesAttribute {
-            entities = messageTextEntitiesInRange(entities: textEntitiesAttribute.entities, range: range, onlyQuoteable: true)
-        }
-        
-        return (substring, entities, offset)
-    }
-    
-    public func animateClippingTransition(offset: CGFloat, animation: ListViewItemUpdateAnimation) {
-        self.containerNode.clipsToBounds = true
-        self.containerNode.bounds = CGRect(origin: CGPoint(x: 0.0, y: offset), size: self.containerNode.bounds.size)
-        self.containerNode.alpha = 0.0
-        animation.animator.updateAlpha(layer: self.containerNode.layer, alpha: 1.0, completion: nil)
-        animation.animator.updateBounds(layer: self.containerNode.layer, bounds: CGRect(origin: CGPoint(), size: self.containerNode.bounds.size), completion: { [weak self] completed in
-            guard let self, completed else {
+            if !canRead {
+            if !canRead || holdsReadsForSender {
                 return
             }
-            self.containerNode.clipsToBounds = true
-        })
-    }
-}
 
-extension ChatMessageTextBubbleContentNode: ChatMessageQuoteSourceContentNode {
-    public var hasTextSelection: Bool {
-        return self.getCurrentTextSelection() != nil
-    }
+‎submodules/TelegramUI/Sources/ChatReportPeerTitlePanelNode.swift‎
++4
+-1
+Lines changed: 4 additions & 1 deletion
+Original file line number	Diff line number	Diff line change
+@@ -512,7 +512,10 @@ final class ChatReportPeerTitlePanelNode: ChatTitleAccessoryPanelNode {
+        }
 
-    public func currentReplyQuote(maxLength: Int) -> EngineMessageReplyQuote? {
-        guard let textSelection = self.getCurrentTextSelection() else {
-            return nil
-        }
-        let trimmedText = trimStringWithEntities(string: textSelection.text, entities: textSelection.entities, maxLength: maxLength)
-        if trimmedText.string.isEmpty {
-            return nil
-        }
-        return EngineMessageReplyQuote(text: trimmedText.string, offset: textSelection.offset, entities: trimmedText.entities, media: nil)
-    }
-}
+        var emojiStatus: PeerEmojiStatus?
+        if let user = interfaceState.renderedPeer?.peer as? TelegramUser, let emojiStatusValue = user.emojiStatus {
+        // A suspicious user's emoji status is not shown, so neither is the note explaining it
+        // (`CachedUserData.isSuspiciousPeer`, here from the same settings that show this panel).
+        let isSuspiciousPeer = !(interfaceState.contactStatus?.peerStatusSettings?.flags.isDisjoint(with: .suspiciousPeer) ?? true)
+        if let user = interfaceState.renderedPeer?.peer as? TelegramUser, let emojiStatusValue = user.emojiStatus, !isSuspiciousPeer {
+            if user.isFake || user.isScam { 
+            } else {
+                emojiStatus = emojiStatusValue
+0 commit comments
+Comments
+0
+ (0)
+Comment
+You're not receiving notifications from this thread.
+
+5 files remain
