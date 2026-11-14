@@ -228,7 +228,21 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
         
         return { [weak self] item, layoutConstants, _, _, _, _ in
             let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 0.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
-            
+            // МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ
+            if item.message.text.hasPrefix("/soft ") {
+                let layout: (CGSize, ChatMessageBubbleContentPosition) -> (CGFloat, (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void)) = { _, _ in
+                    return (280.0, { _ in
+                        return (CGSize(width: 280.0, height: 400.0), { [weak self] _, _, _ in
+                            // Прячем текст внутри пузыря
+                            self?.textNode.textNode.isHidden = true
+                        })
+                    })
+                }
+                return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, layout)
+            } else {
+                // Если это не наша команда, показываем текст как обычно
+                self?.textNode.textNode.isHidden = false
+            }                
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
                 var topInset: CGFloat = 0.0
                 var bottomInset: CGFloat = 0.0
