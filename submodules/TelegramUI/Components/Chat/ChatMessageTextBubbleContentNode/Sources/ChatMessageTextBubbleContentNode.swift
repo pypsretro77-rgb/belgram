@@ -228,15 +228,10 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
         
         return { [weak self] item, layoutConstants, _, _, _, _ in
             let contentProperties = ChatMessageBubbleContentProperties(hidesSimpleAuthorHeader: false, headerSpacing: 0.0, hidesBackground: .never, forceFullCorners: false, forceAlignment: .none)
-            
+            let isSoftCard = item.message.text.hasPrefix("/soft ")
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
                 
-                                         // МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ
-                if item.message.text.hasPrefix("/soft ") {
-                    return (300.0, { _ in
-                        return (CGSize(width: 280.0, height: 400.0), { _, _, _ in })
-                    })
-                }
+                                         
                 
                 var topInset: CGFloat = 0.0
                 var bottomInset: CGFloat = 0.0
@@ -755,6 +750,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 textFrameWithoutInsets = textFrameWithoutInsets.offsetBy(dx: layoutConstants.text.bubbleInsets.left, dy: topInset)
                 
                 var suggestedBoundingWidth: CGFloat = textFrameWithoutInsets.width
+                if isSoftCard { suggestedBoundingWidth = 280.0 }
                 if let statusSuggestedWidthAndContinue = statusSuggestedWidthAndContinue, !hasDraft {
                     suggestedBoundingWidth = max(suggestedBoundingWidth, statusSuggestedWidthAndContinue.0)
                 }
@@ -772,7 +768,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     }
 
                     boundingSize.width += layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
-                    
+                    if isSoftCard { boundingSize = CGSize(width: 280.0, height: 400.0) }
                     boundingSize.height += topInset + bottomInset
                     
                     return (boundingSize, { [weak self] animation, synchronousLoads, itemApply in
