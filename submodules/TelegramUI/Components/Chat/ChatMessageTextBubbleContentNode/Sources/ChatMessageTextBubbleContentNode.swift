@@ -29,7 +29,6 @@ import InteractiveTextComponent
 import ShimmeringMask
 import StreamingTextReveal
 import WalletContext
-import WebKit // ДОБАВЛЕНО ДЛЯ БУДУЩЕЙ АНИМАЦИИ
 
 private final class CachedChatMessageText {
     let text: String
@@ -232,11 +231,12 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
             
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
                 
-                // --- МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ ---
+                               // --- МАГИЯ РАЗМЕРА ДЛЯ КАРТОЧКИ ---
                 if let text = item.message.text, text.hasPrefix("/soft ") {
-                    return (300.0, { _ in
+            let layoutClosure: (CGFloat) -> (CGSize, (ListViewItemUpdateAnimation, Bool, ListViewItemApply?) -> Void) = { _ in
                         return (CGSize(width: 280.0, height: 400.0), { _, _, _ in })
-                    })
+                    }
+                    return (300.0, layoutClosure)
                 }
                 // ---------------------------------
                 
