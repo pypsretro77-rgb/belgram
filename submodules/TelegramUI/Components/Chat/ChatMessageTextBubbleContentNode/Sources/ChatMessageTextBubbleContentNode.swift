@@ -1114,4 +1114,6 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     override public func animateRemoved(_ currentTimestamp: Double, duration: Double) {
         self.textNode.textNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
         if let statusNode = self.statusNode, statusNode.alpha != 0.0 {
-            statusNode.layer.animateAlpha(from: statusNode.alpha, to: 0.0, duration: 0.2, removeOnCompleti
+            statusNode.layer.animateAlpha(from: statusNode.alpha, to: 0.0, duration: 0.2, removeOnCompletion: false)
+        }
+     }
