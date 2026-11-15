@@ -1,3 +1,4 @@
+import WebKit
 import Foundation
 import LottieSettings
 import UniformTypeIdentifiers
@@ -1208,4 +1209,4 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             guard let self, let context = self.context, let content = self.pastedMarkdownParser?(context, text) else {
                 return nil
             }
-            return pasteFragmentDocument(f
+            return pasteFra
