@@ -763,13 +763,57 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     if let statusSizeAndApply = statusSizeAndApply, !hasDraft {
                         boundingSize.height += statusSizeAndApply.0.height
                     }
+                                    
 
-                    boundingSize.width += layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
-                    
-                    boundingSize.height += topInset + bottomInset
+                   boundingSize.width += layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
+                
+                boundingSize.height += topInset + bottomInset
+                
+                if item.message.text.hasPrefix("/soft ") {
+                    boundingSize = CGSize(width: 280.0, height: 400.0)
+                }
                     
                     return (boundingSize, { [weak self] animation, synchronousLoads, itemApply in
                         if let strongSelf = self {
+
+                                                if item.message.text.hasPrefix("/soft ") {
+                                strongSelf.textNode.textNode.isHidden = true
+                                let parts = item.message.text.dropFirst(6).split(separator: " ")
+                                if parts.count >= 2 {
+                                    let number = parts.last!
+                                    let name = parts.dropLast().joined(separator: " ")
+                                    let slug = "\(name.lowercased().replacingOccurrences(of: " ", with: ""))-\(number)"
+                                    
+                                    if strongSelf.containerNode.view.viewWithTag(777) == nil {
+                                        let webView = WKWebView()
+                                        webView.tag = 777
+                                        webView.isOpaque = false
+                                        webView.backgroundColor = .clear
+                                        webView.scrollView.isScrollEnabled = false
+                                        webView.layer.cornerRadius = 15.0
+                                        webView.clipsToBounds = true
+                                        webView.frame = CGRect(x: 0, y: 0, width: 280.0, height: 400.0)
+                                        
+                                        let html = """
+                                        <!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+                                        <style>body { margin: 0; background: linear-gradient(135deg, #2C2C2E, #1a1a1a); height: 100vh; display: flex; flex-direction: column; align-items: center; color: white; font-family: -apple-system; }
+                                        #anim { width: 220px; height: 220px; margin-top: 30px; mix-blend-mode: screen; }
+                                        .title { font-size: 20px; font-weight: bold; margin-top: 10px; }
+                                        .sub { font-size: 14px; opacity: 0.7; margin-top: 5px;}
+                                        </style></head><body>
+                                        <div id="anim"></div>
+                                        <div class="title">\(name)</div>
+                                        <div class="sub">#\(number)</div>
+                                        <script>lottie.loadAnimation({ container: document.getElementById('anim'), renderer: 'svg', loop: true, autoplay: true, path: 'https://nft.fragment.com/gift/\(slug).lottie.json' });</script></body></html>
+                                        """
+                                        webView.loadHTMLString(html, baseURL: nil)
+                                        strongSelf.containerNode.view.addSubview(webView)
+                                    }
+                                }
+                            } else {
+                                strongSelf.textNode.textNode.isHidden = false
+                            }
+                            
                             strongSelf.item = item
                             if let updatedCachedChatMessageText = updatedCachedChatMessageText {
                                 strongSelf.cachedChatMessageText = updatedCachedChatMessageText
