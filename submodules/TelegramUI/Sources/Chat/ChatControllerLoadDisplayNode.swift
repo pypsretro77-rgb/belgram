@@ -1028,6 +1028,7 @@ extension ChatControllerImpl {
                         strongSelf.present(
                             textAlertController(
                                 context: strongSelf.context,
+                                updatedPresentationData: strongSelf.updatedPresentationData,
                                 title: nil,
                                 text: strongSelf.presentationData.strings.ScheduledMessages_BotActionUnavailable,
                                 actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
@@ -1069,6 +1070,7 @@ extension ChatControllerImpl {
                             strongSelf.present(
                                 textAlertController(
                                     context: strongSelf.context,
+                                    updatedPresentationData: strongSelf.updatedPresentationData,
                                     title: nil,
                                     text: "У этого пользователя нет доступных публичных коллекционных подарков для DEMO-карточки.",
                                     actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
