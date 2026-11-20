@@ -1,4 +1,5 @@
 import Foundation
+import Postbox
 import UIKit
 import SwiftSignalKit
 import Display
@@ -999,6 +1000,142 @@ extension ChatControllerImpl {
                 return
             }
 
+            if messages.count == 1,
+               case let .message(commandText, _, _, _, _, _, _, _, _, _) = messages[0] {
+                let commandParts = commandText.split(whereSeparator: { $0.isWhitespace })
+                if commandParts.first == "/soft" {
+                    guard commandParts.count == 3,
+                          commandParts[1] == "random",
+                          let requestedPeerId = Int64(String(commandParts[2])),
+                          let peerId = strongSelf.chatLocation.peerId,
+                          peerId.namespace == Namespaces.Peer.CloudUser,
+                          peerId != strongSelf.context.account.peerId,
+                          requestedPeerId > 0,
+                          peerId.id._internalGetInt64Value() == requestedPeerId else {
+                        strongSelf.present(
+                            textAlertController(
+                                context: strongSelf.context,
+                                title: nil,
+                                text: "Формат: /soft random ID текущего собеседника",
+                                actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
+                            ),
+                            in: .window(.root)
+                        )
+                        return
+                    }
+
+                    if case .scheduledMessages = strongSelf.presentationInterfaceState.subject {
+                        strongSelf.present(
+                            textAlertController(
+                                context: strongSelf.context,
+                                title: nil,
+                                text: strongSelf.presentationData.strings.ScheduledMessages_BotActionUnavailable,
+                                actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
+                            ),
+                            in: .window(.root)
+                        )
+                        return
+                    }
+
+                    let profileGifts = ProfileGiftsContext(
+                        account: strongSelf.context.account,
+                        peerId: peerId,
+                        filter: [.unique, .displayed],
+                        limit: 100
+                    )
+
+                    let _ = (profileGifts.state
+                    |> filter { state in
+                        if case .ready = state.dataState {
+                            return true
+                        }
+                        return false
+                    }
+                    |> take(1)
+                    |> deliverOnMainQueue).start(next: { [weak strongSelf, profileGifts] state in
+                        guard let strongSelf else {
+                            let _ = profileGifts
+                            return
+                        }
+
+                        let uniqueGifts = state.filteredGifts.filter { gift in
+                            if case .unique = gift.gift {
+                                return true
+                            }
+                            return false
+                        }
+
+                        guard let selectedGift = uniqueGifts.randomElement() else {
+                            strongSelf.present(
+                                textAlertController(
+                                    context: strongSelf.context,
+                                    title: nil,
+                                    text: "У этого пользователя нет доступных публичных коллекционных подарков для DEMO-карточки.",
+                                    actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
+                                ),
+                                in: .window(.root)
+                            )
+                            let _ = profileGifts
+                            return
+                        }
+
+                        let giftAction = TelegramMediaAction(action: .starGiftUnique(
+                            gift: selectedGift.gift,
+                            isUpgrade: false,
+                            isTransferred: false,
+                            savedToProfile: false,
+                            canExportDate: nil,
+                            transferStars: nil,
+                            isRefunded: selectedGift.isRefunded,
+                            isPrepaidUpgrade: false,
+                            peerId: strongSelf.context.account.peerId,
+                            senderId: peerId,
+                            savedId: nil,
+                            resaleAmount: nil,
+                            canTransferDate: nil,
+                            canResaleDate: nil,
+                            dropOriginalDetailsStars: nil,
+                            assigned: false,
+                            fromOffer: false,
+                            canCraftAt: nil,
+                            isCrafted: false,
+                            text: "DEMO • Локальная демонстрация. Подарок не передан.",
+                            entities: nil,
+                            nameHidden: false
+                        ))
+
+                        let localGiftMessage = StoreMessage(
+                            peerId: peerId,
+                            namespace: Namespaces.Message.Local,
+                            customStableId: nil,
+                            globallyUniqueId: Int64.random(in: 1 ..< Int64.max),
+                            groupingKey: nil,
+                            threadId: strongSelf.chatLocation.threadId,
+                            timestamp: Int32(Date().timeIntervalSince1970),
+                            flags: [.Incoming],
+                            tags: [],
+                            globalTags: [],
+                            localTags: [],
+                            forwardInfo: nil,
+                            authorId: peerId,
+                            text: "",
+                            attributes: [],
+                            media: [giftAction]
+                        )
+
+                        let _ = (strongSelf.context.account.postbox.transaction { transaction -> Void in
+                            let _ = transaction.addMessages([localGiftMessage], location: .Random)
+                        }
+                        |> deliverOnMainQueue).start(completed: { [weak strongSelf] in
+                            strongSelf?.chatDisplayNode.historyNode.scrollToEndOfHistory()
+                        })
+
+                        let _ = profileGifts
+                    })
+
+                    return
+                }
+            }
             var correlationIds: [Int64] = []
             for message in messages {
                 switch message {
