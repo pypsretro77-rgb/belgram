@@ -899,6 +899,10 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                     customRibbonColors = [UIColor(rgb: 0xd9433a), UIColor(rgb: 0xff645b)]
                                     buttonTitle = ""
                                 }
+                                if giftText?.hasPrefix("DEMO") == true {
+                                    ribbonTitle = "DEMO"
+                                    customRibbonColors = [UIColor(rgb: 0x5b4acb), UIColor(rgb: 0x9278ef)]
+                                }
                                 
                                 for attribute in uniqueGiftValue.attributes {
                                     switch attribute {
