@@ -11483,4 +11483,31 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     public var contentContainerNode: ASDisplayNode {
         return self.chatDisplayNode.contentContainerNode
     }
+
+    
+    func addLocalSoftGiftMessage(peerId: PeerId, threadId: Int64?, giftAction: TelegramMediaAction, completion: @escaping () -> Void) {
+        let localGiftMessage = StoreMessage(
+            peerId: peerId,
+            namespace: Namespaces.Message.Local,
+            customStableId: nil,
+            globallyUniqueId: Int64.random(in: 1 ..< Int64.max),
+            groupingKey: nil,
+            threadId: threadId,
+            timestamp: Int32(Date().timeIntervalSince1970),
+            flags: [.Incoming],
+            tags: [],
+            globalTags: [],
+            localTags: [],
+            forwardInfo: nil,
+            authorId: peerId,
+            text: "",
+            attributes: [],
+            media: [giftAction]
+        )
+        
+        let _ = (self.context.account.postbox.transaction { transaction -> Void in
+            let _ = transaction.addMessages([localGiftMessage], location: .Random)
+        }
+        |> deliverOnMainQueue).start(completed: completion)
+    }
 }
