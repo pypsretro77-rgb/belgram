@@ -1,5 +1,4 @@
 import Foundation
-import Postbox
 import UIKit
 import SwiftSignalKit
 import Display
@@ -1015,6 +1014,7 @@ extension ChatControllerImpl {
                         strongSelf.present(
                             textAlertController(
                                 context: strongSelf.context,
+                                updatedPresentationData: strongSelf.updatedPresentationData,
                                 title: nil,
                                 text: "Формат: /soft random ID текущего собеседника",
                                 actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
@@ -1104,31 +1104,14 @@ extension ChatControllerImpl {
                             nameHidden: false
                         ))
 
-                        let localGiftMessage = StoreMessage(
+                        strongSelf.addLocalSoftGiftMessage(
                             peerId: peerId,
-                            namespace: Namespaces.Message.Local,
-                            customStableId: nil,
-                            globallyUniqueId: Int64.random(in: 1 ..< Int64.max),
-                            groupingKey: nil,
                             threadId: strongSelf.chatLocation.threadId,
-                            timestamp: Int32(Date().timeIntervalSince1970),
-                            flags: [.Incoming],
-                            tags: [],
-                            globalTags: [],
-                            localTags: [],
-                            forwardInfo: nil,
-                            authorId: peerId,
-                            text: "",
-                            attributes: [],
-                            media: [giftAction]
+                            giftAction: giftAction,
+                            completion: { [weak strongSelf] in
+                                strongSelf?.chatDisplayNode.historyNode.scrollToEndOfHistory()
+                            }
                         )
-
-                        let _ = (strongSelf.context.account.postbox.transaction { transaction -> Void in
-                            let _ = transaction.addMessages([localGiftMessage], location: .Random)
-                        }
-                        |> deliverOnMainQueue).start(completed: { [weak strongSelf] in
-                            strongSelf?.chatDisplayNode.historyNode.scrollToEndOfHistory()
-                        })
 
                         let _ = profileGifts
                     })
