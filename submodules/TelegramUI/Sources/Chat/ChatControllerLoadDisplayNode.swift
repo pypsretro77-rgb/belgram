@@ -1056,65 +1056,9 @@ extension ChatControllerImpl {
                         return
                     }
 
-                    let giftsSignal = softCompleting(strongSelf.context.engine.payments.keepStarGiftsUpdated(), with: ())
-                    |> mapToSignal { _ in
-                        strongSelf.context.engine.payments.cachedStarGifts() |> take(1)
-                    }
-                    |> deliverOnMainQueue
-
-                    let _ = giftsSignal.start(next: { [weak strongSelf] gifts in
-                        guard let strongSelf else {
-                            return
-                        }
-
-                        let regularGifts = (gifts ?? []).compactMap { gift -> StarGift.Gift? in
-                            if case let .generic(value) = gift {
-                                return value
-                            }
-                            return nil
-                        }
-
-                        let selectedGift: StarGift.Gift?
-                        if let requestedSlug {
-                            // The public NFT URL identifies a unique item. In this local DEMO
-                            // preview we resolve its base gift design from Telegram's general catalog.
-                            let slugParts = requestedSlug.split(separator: "-")
-                            let baseSlug = slugParts.count > 1 && Int(slugParts.last ?? "") != nil
-                                ? slugParts.dropLast().joined(separator: "-")
-                                : requestedSlug
-                            let normalizedSlug = baseSlug.lowercased().filter { $0.isLetter || $0.isNumber }
-                            selectedGift = regularGifts.first(where: { gift in
-                                guard let title = gift.title else {
-                                    return false
-                                }
-                                return title.lowercased().filter { $0.isLetter || $0.isNumber } == normalizedSlug
-                            })
-                        } else {
-                            selectedGift = regularGifts.randomElement()
-                        }
-
-                        guard let selectedGift else {
-                            strongSelf.present(
-                                textAlertController(
-                                    context: strongSelf.context,
-                                    updatedPresentationData: strongSelf.updatedPresentationData,
-                                    title: nil,
-                                    text: requestedSlug == nil
-                                        ? "Общий каталог подарков Telegram пока не загружен или пуст. Повтори команду позже."
-                                        : "Не удалось найти основу подарка по этой ссылке в общем каталоге. Проверь ссылку или повтори позже.",
-                                    actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
-                                ),
-                                in: .window(.root)
-                            )
-                            return
-                        }
-
-                        let demoDescription = requestedSlug == nil
-                            ? "DEMO • Локальная демонстрация. Подарок не передан."
-                            : "DEMO • Локальный предпросмотр \(selectedGift.title ?? requestedSlug ?? "NFT"). NFT не передан."
-
+                    let addDemoGift: (StarGift, String) -> Void = { gift, demoDescription in
                         let giftAction = TelegramMediaAction(action: .starGift(
-                            gift: .generic(selectedGift),
+                            gift: gift,
                             convertStars: nil,
                             text: demoDescription,
                             entities: nil,
@@ -1146,7 +1090,75 @@ extension ChatControllerImpl {
                                 strongSelf?.chatDisplayNode.historyNode.scrollToEndOfHistory()
                             }
                         )
-                    })
+                    }
+
+                    if let requestedSlug {
+                        // Resolve the exact collectible from Telegram's unique-gift endpoint.
+                        // This creates only a local DEMO message; it does not transfer an NFT.
+                        let _ = (strongSelf.context.engine.payments.getUniqueStarGift(slug: requestedSlug)
+                        |> deliverOnMainQueue).start(next: { [weak strongSelf] uniqueGift in
+                            guard let strongSelf else {
+                                return
+                            }
+                            let title = uniqueGift.title
+                            addDemoGift(
+                                .unique(uniqueGift),
+                                "DEMO • Локальный предпросмотр коллекционного NFT \\(title). NFT не передан."
+                            )
+                        }, error: { [weak strongSelf] _ in
+                            guard let strongSelf else {
+                                return
+                            }
+                            strongSelf.present(
+                                textAlertController(
+                                    context: strongSelf.context,
+                                    updatedPresentationData: strongSelf.updatedPresentationData,
+                                    title: nil,
+                                    text: "Не удалось загрузить коллекционный NFT по этой ссылке. Проверь ссылку или попробуй позже.",
+                                    actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
+                                ),
+                                in: .window(.root)
+                            )
+                        })
+                    } else {
+                        let giftsSignal = softCompleting(strongSelf.context.engine.payments.keepStarGiftsUpdated(), with: ())
+                        |> mapToSignal { _ in
+                            strongSelf.context.engine.payments.cachedStarGifts() |> take(1)
+                        }
+                        |> deliverOnMainQueue
+
+                        let _ = giftsSignal.start(next: { [weak strongSelf] gifts in
+                            guard let strongSelf else {
+                                return
+                            }
+
+                            let regularGifts = (gifts ?? []).compactMap { gift -> StarGift.Gift? in
+                                if case let .generic(value) = gift {
+                                    return value
+                                }
+                                return nil
+                            }
+
+                            guard let selectedGift = regularGifts.randomElement() else {
+                                strongSelf.present(
+                                    textAlertController(
+                                        context: strongSelf.context,
+                                        updatedPresentationData: strongSelf.updatedPresentationData,
+                                        title: nil,
+                                        text: "Общий каталог подарков Telegram пока не загружен или пуст. Повтори команду позже.",
+                                        actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
+                                    ),
+                                    in: .window(.root)
+                                )
+                                return
+                            }
+
+                            addDemoGift(
+                                .generic(selectedGift),
+                                "DEMO • Локальная демонстрация. Подарок не передан."
+                            )
+                        })
+                    }
 
                     return
                 }
