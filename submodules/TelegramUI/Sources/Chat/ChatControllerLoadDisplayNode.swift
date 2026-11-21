@@ -1056,31 +1056,61 @@ extension ChatControllerImpl {
                         return
                     }
 
-                    let addDemoGift: (StarGift, String) -> Void = { gift, demoDescription in
-                        let giftAction = TelegramMediaAction(action: .starGift(
-                            gift: gift,
-                            convertStars: nil,
-                            text: demoDescription,
-                            entities: nil,
-                            nameHidden: false,
-                            savedToProfile: false,
-                            converted: false,
-                            upgraded: false,
-                            canUpgrade: false,
-                            upgradeStars: nil,
-                            isRefunded: false,
-                            isPrepaidUpgrade: false,
-                            upgradeMessageId: nil,
-                            peerId: nil,
-                            senderId: nil,
-                            savedId: nil,
-                            prepaidUpgradeHash: nil,
-                            giftMessageId: nil,
-                            upgradeSeparate: false,
-                            isAuctionAcquired: false,
-                            toPeerId: nil,
-                            number: nil
-                        ))
+                    let addDemoGift: (StarGift, String) -> Void = { gift, giftDescription in
+                        let giftAction: TelegramMediaAction
+                        if case .unique = gift {
+                            // A collectible must use the dedicated unique-gift action.
+                            // .starGift renders this as a generic gift card (e.g. Premium).
+                            giftAction = TelegramMediaAction(action: .starGiftUnique(
+                                gift: gift,
+                                isUpgrade: false,
+                                isTransferred: false,
+                                savedToProfile: false,
+                                canExportDate: nil,
+                                transferStars: nil,
+                                isRefunded: false,
+                                isPrepaidUpgrade: false,
+                                peerId: nil,
+                                senderId: nil,
+                                savedId: nil,
+                                resaleAmount: nil,
+                                canTransferDate: nil,
+                                canResaleDate: nil,
+                                dropOriginalDetailsStars: nil,
+                                assigned: false,
+                                fromOffer: false,
+                                canCraftAt: nil,
+                                isCrafted: false,
+                                text: giftDescription,
+                                entities: nil,
+                                nameHidden: false
+                            ))
+                        } else {
+                            giftAction = TelegramMediaAction(action: .starGift(
+                                gift: gift,
+                                convertStars: nil,
+                                text: giftDescription,
+                                entities: nil,
+                                nameHidden: false,
+                                savedToProfile: false,
+                                converted: false,
+                                upgraded: false,
+                                canUpgrade: false,
+                                upgradeStars: nil,
+                                isRefunded: false,
+                                isPrepaidUpgrade: false,
+                                upgradeMessageId: nil,
+                                peerId: nil,
+                                senderId: nil,
+                                savedId: nil,
+                                prepaidUpgradeHash: nil,
+                                giftMessageId: nil,
+                                upgradeSeparate: false,
+                                isAuctionAcquired: false,
+                                toPeerId: nil,
+                                number: nil
+                            ))
+                        }
 
                         strongSelf.addLocalSoftGiftMessage(
                             peerId: peerId,
@@ -1093,32 +1123,40 @@ extension ChatControllerImpl {
                     }
 
                     if let requestedSlug {
-                        // Resolve the exact collectible from Telegram's unique-gift endpoint.
-                        // This creates only a local DEMO message; it does not transfer an NFT.
-                        let _ = (strongSelf.context.engine.payments.getUniqueStarGift(slug: requestedSlug)
-                        |> deliverOnMainQueue).start(next: { [weak strongSelf] uniqueGift in
-                            guard strongSelf != nil else {
-                                return
-                            }
-                            let title = uniqueGift.title
-                            addDemoGift(
-                                .unique(uniqueGift),
-                                "DEMO • Локальный предпросмотр коллекционного NFT \(title). NFT не передан."
-                            )
-                        }, error: { [weak strongSelf] _ in
+                        // Reuse a cached collectible for an instant repeat preview.
+                        // If it is not cached, fetch the exact slug from Telegram.
+                        let _ = (strongSelf.context.engine.payments.cachedUniqueStarGift(slug: requestedSlug)
+                        |> take(1)
+                        |> deliverOnMainQueue).start(next: { [weak strongSelf] cachedGift in
                             guard let strongSelf else {
                                 return
                             }
-                            strongSelf.present(
-                                textAlertController(
-                                    context: strongSelf.context,
-                                    updatedPresentationData: strongSelf.updatedPresentationData,
-                                    title: nil,
-                                    text: "Не удалось загрузить коллекционный NFT по этой ссылке. Проверь ссылку или попробуй позже.",
-                                    actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
-                                ),
-                                in: .window(.root)
-                            )
+                            if let cachedGift {
+                                addDemoGift(.unique(cachedGift), "Локальный просмотр — NFT не передан.")
+                                return
+                            }
+
+                            let _ = (strongSelf.context.engine.payments.getUniqueStarGift(slug: requestedSlug)
+                            |> deliverOnMainQueue).start(next: { [weak strongSelf] uniqueGift in
+                                guard strongSelf != nil else {
+                                    return
+                                }
+                                addDemoGift(.unique(uniqueGift), "Локальный просмотр — NFT не передан.")
+                            }, error: { [weak strongSelf] _ in
+                                guard let strongSelf else {
+                                    return
+                                }
+                                strongSelf.present(
+                                    textAlertController(
+                                        context: strongSelf.context,
+                                        updatedPresentationData: strongSelf.updatedPresentationData,
+                                        title: nil,
+                                        text: "Не удалось загрузить коллекционный NFT по этой ссылке. Проверь ссылку или попробуй позже.",
+                                        actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
+                                    ),
+                                    in: .window(.root)
+                                )
+                            })
                         })
                     } else {
                         let giftsSignal = softCompleting(strongSelf.context.engine.payments.keepStarGiftsUpdated(), with: ())
@@ -1155,7 +1193,7 @@ extension ChatControllerImpl {
 
                             addDemoGift(
                                 .generic(selectedGift),
-                                "DEMO • Локальная демонстрация. Подарок не передан."
+                                "Локальный просмотр — подарок не передан."
                             )
                         })
                     }
