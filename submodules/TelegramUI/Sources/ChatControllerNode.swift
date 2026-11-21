@@ -77,6 +77,313 @@ import RichTextEditorMediaView
 import InstantPageUI
 import ChatRichTextEditorComposer
 
+private final class ScenarioStudioOverlay: UIView {
+    private let titleField = UITextField()
+    private let usernameField = UITextField()
+    private let avatarField = UITextField()
+    private let intervalField = UITextField()
+    private let scriptView = UITextView()
+    private let previewView = UITextView()
+    private let typingField = UITextField()
+    private let avatarView = UIImageView()
+    private let premiumSwitch = UISwitch()
+    private var typingWorkItem: DispatchWorkItem?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        self.backgroundColor = UIColor.black.withAlphaComponent(0.58)
+
+        let panel = UIView()
+        panel.backgroundColor = UIColor.secondarySystemBackground
+        panel.layer.cornerRadius = 18.0
+        panel.clipsToBounds = true
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        self.addSubview(panel)
+
+        let heading = UILabel()
+        heading.text = "Студия сценариев"
+        heading.font = UIFont.boldSystemFont(ofSize: 21.0)
+        heading.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(heading)
+
+        let closeButton = UIButton(type: .system)
+        closeButton.setTitle("Закрыть", for: .normal)
+        closeButton.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(closeButton)
+
+        self.avatarView.backgroundColor = .tertiarySystemFill
+        self.avatarView.layer.cornerRadius = 24.0
+        self.avatarView.clipsToBounds = true
+        self.avatarView.contentMode = .scaleAspectFill
+        self.avatarView.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(self.avatarView)
+
+        self.configure(self.titleField, placeholder: "Имя собеседника")
+        self.configure(self.usernameField, placeholder: "@username")
+        self.configure(self.avatarField, placeholder: "URL аватара")
+        self.configure(self.intervalField, placeholder: "Интервал, сек. (например, 1)")
+        self.intervalField.keyboardType = .decimalPad
+        panel.addSubview(self.titleField)
+        panel.addSubview(self.usernameField)
+        panel.addSubview(self.avatarField)
+        panel.addSubview(self.intervalField)
+
+        let premiumLabel = UILabel()
+        premiumLabel.text = "Premium"
+        premiumLabel.font = UIFont.systemFont(ofSize: 15.0)
+        premiumLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(premiumLabel)
+        self.premiumSwitch.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(self.premiumSwitch)
+
+        let scriptLabel = UILabel()
+        scriptLabel.text = "Сценарий (каждое сообщение с новой строки)"
+        scriptLabel.font = UIFont.semiboldSystemFont(ofSize: 14.0)
+        scriptLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(scriptLabel)
+
+        self.scriptView.font = UIFont.systemFont(ofSize: 15.0)
+        self.scriptView.backgroundColor = .tertiarySystemBackground
+        self.scriptView.layer.cornerRadius = 10.0
+        self.scriptView.text = "Собеседник: Привет!\nЯ: Привет, как дела?\nСобеседник: Отлично!"
+        self.scriptView.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(self.scriptView)
+
+        let previewLabel = UILabel()
+        previewLabel.text = "Предпросмотр переписки"
+        previewLabel.font = UIFont.semiboldSystemFont(ofSize: 14.0)
+        previewLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(previewLabel)
+
+        self.previewView.isEditable = false
+        self.previewView.font = UIFont.systemFont(ofSize: 14.0)
+        self.previewView.backgroundColor = .tertiarySystemBackground
+        self.previewView.layer.cornerRadius = 10.0
+        self.previewView.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(self.previewView)
+
+        self.typingField.borderStyle = .roundedRect
+        self.typingField.placeholder = "Текст будет печататься здесь по буквам"
+        self.typingField.font = UIFont.systemFont(ofSize: 14.0)
+        self.typingField.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(self.typingField)
+
+        let runButton = UIButton(type: .system)
+        runButton.setTitle("Запустить предпросмотр", for: .normal)
+        runButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16.0)
+        runButton.backgroundColor = .systemBlue
+        runButton.tintColor = .white
+        runButton.layer.cornerRadius = 10.0
+        runButton.addTarget(self, action: #selector(runPressed), for: .touchUpInside)
+        runButton.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(runButton)
+
+        let saveButton = UIButton(type: .system)
+        saveButton.setTitle("Сохранить сценарий", for: .normal)
+        saveButton.addTarget(self, action: #selector(savePressed), for: .touchUpInside)
+        saveButton.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(saveButton)
+
+        NSLayoutConstraint.activate([
+            panel.centerXAnchor.constraint(equalTo: self.centerXAnchor),
+            panel.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+            panel.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -28.0),
+            panel.heightAnchor.constraint(lessThanOrEqualTo: self.heightAnchor, constant: -40.0),
+            panel.topAnchor.constraint(greaterThanOrEqualTo: self.safeAreaLayoutGuide.topAnchor, constant: 12.0),
+            panel.bottomAnchor.constraint(lessThanOrEqualTo: self.safeAreaLayoutGuide.bottomAnchor, constant: -12.0),
+
+            heading.topAnchor.constraint(equalTo: panel.topAnchor, constant: 16.0),
+            heading.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16.0),
+            closeButton.centerYAnchor.constraint(equalTo: heading.centerYAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -14.0),
+
+            avatarView.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 12.0),
+            avatarView.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16.0),
+            avatarView.widthAnchor.constraint(equalToConstant: 48.0),
+            avatarView.heightAnchor.constraint(equalToConstant: 48.0),
+
+            titleField.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            titleField.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10.0),
+            titleField.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16.0),
+            titleField.heightAnchor.constraint(equalToConstant: 34.0),
+            usernameField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2.0),
+            usernameField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+            usernameField.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
+            usernameField.heightAnchor.constraint(equalToConstant: 30.0),
+
+            avatarField.topAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 8.0),
+            avatarField.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16.0),
+            avatarField.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16.0),
+            avatarField.heightAnchor.constraint(equalToConstant: 34.0),
+            intervalField.topAnchor.constraint(equalTo: avatarField.bottomAnchor, constant: 5.0),
+            intervalField.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            intervalField.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+            intervalField.heightAnchor.constraint(equalToConstant: 34.0),
+
+            premiumLabel.topAnchor.constraint(equalTo: intervalField.bottomAnchor, constant: 8.0),
+            premiumLabel.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            premiumSwitch.centerYAnchor.constraint(equalTo: premiumLabel.centerYAnchor),
+            premiumSwitch.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+
+            scriptLabel.topAnchor.constraint(equalTo: premiumLabel.bottomAnchor, constant: 8.0),
+            scriptLabel.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            scriptLabel.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+            self.scriptView.topAnchor.constraint(equalTo: scriptLabel.bottomAnchor, constant: 5.0),
+            self.scriptView.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            self.scriptView.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+            self.scriptView.heightAnchor.constraint(equalToConstant: 105.0),
+
+            previewLabel.topAnchor.constraint(equalTo: self.scriptView.bottomAnchor, constant: 8.0),
+            previewLabel.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            self.previewView.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 5.0),
+            self.previewView.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            self.previewView.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+            self.previewView.heightAnchor.constraint(equalToConstant: 82.0),
+
+            self.typingField.topAnchor.constraint(equalTo: self.previewView.bottomAnchor, constant: 7.0),
+            self.typingField.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            self.typingField.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+            self.typingField.heightAnchor.constraint(equalToConstant: 36.0),
+
+            runButton.topAnchor.constraint(equalTo: self.typingField.bottomAnchor, constant: 9.0),
+            runButton.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
+            runButton.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
+            runButton.heightAnchor.constraint(equalToConstant: 40.0),
+            saveButton.topAnchor.constraint(equalTo: runButton.bottomAnchor, constant: 4.0),
+            saveButton.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+            saveButton.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -8.0)
+        ])
+
+        if let saved = UserDefaults.standard.dictionary(forKey: "BelgramScenarioStudio") as? [String: Any] {
+            self.titleField.text = saved["name"] as? String
+            self.usernameField.text = saved["username"] as? String
+            self.avatarField.text = saved["avatar"] as? String
+            self.intervalField.text = saved["interval"] as? String
+            self.scriptView.text = saved["script"] as? String ?? self.scriptView.text
+            self.premiumSwitch.isOn = saved["premium"] as? Bool ?? false
+            self.loadAvatar()
+        } else {
+            self.titleField.text = "Собеседник"
+            self.intervalField.text = "1"
+        }
+        self.avatarField.addTarget(self, action: #selector(avatarChanged), for: .editingChanged)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func configure(_ field: UITextField, placeholder: String) {
+        field.borderStyle = .roundedRect
+        field.placeholder = placeholder
+        field.font = UIFont.systemFont(ofSize: 14.0)
+        field.autocorrectionType = .no
+        field.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @objc private func avatarChanged() {
+        self.loadAvatar()
+    }
+
+    private func loadAvatar() {
+        guard let value = self.avatarField.text, let url = URL(string: value), url.scheme == "https" else {
+            self.avatarView.image = nil
+            return
+        }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async { self?.avatarView.image = image }
+        }.resume()
+    }
+
+    @objc private func closePressed() {
+        self.typingWorkItem?.cancel()
+        self.removeFromSuperview()
+    }
+
+    @objc private func savePressed() {
+        UserDefaults.standard.set([
+            "name": self.titleField.text ?? "",
+            "username": self.usernameField.text ?? "",
+            "avatar": self.avatarField.text ?? "",
+            "interval": self.intervalField.text ?? "1",
+            "script": self.scriptView.text ?? "",
+            "premium": self.premiumSwitch.isOn
+        ], forKey: "BelgramScenarioStudio")
+        self.endEditing(true)
+    }
+
+    @objc private func runPressed() {
+        self.typingWorkItem?.cancel()
+        self.previewView.text = ""
+        let delay = max(0.1, min(10.0, Double((self.intervalField.text ?? "1").replacingOccurrences(of: ",", with: ".")) ?? 1.0))
+        let lines = (self.scriptView.text ?? "").components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        self.play(lines: lines, index: 0, delay: delay)
+    }
+
+    private func play(lines: [String], index: Int, delay: Double) {
+        guard index < lines.count else { return }
+        let line = lines[index]
+        let parts = line.components(separatedBy: ":")
+        let isMe = (parts.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "я"
+        let message = parts.count > 1 ? parts.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces) : line
+        if isMe {
+            self.type(message) { [weak self] in
+                guard let self else { return }
+                self.previewView.text += "Я: \(message)\n"
+                self.play(lines: lines, index: index + 1, delay: delay)
+            }
+        } else {
+            let name = self.titleField.text?.isEmpty == false ? self.titleField.text! : "Собеседник"
+            self.previewView.text += "\(name): \(message)\n"
+            self.playNext(lines: lines, index: index, delay: delay)
+        }
+    }
+
+    private func playNext(lines: [String], index: Int, delay: Double) {
+        let item = DispatchWorkItem { [weak self] in
+            self?.play(lines: lines, index: index + 1, delay: delay)
+        }
+        self.typingWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func type(_ value: String, completion: @escaping () -> Void) {
+        self.typingField.text = ""
+        let characters = Array(value)
+        var position = 0
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if position < characters.count {
+                self.typingField.text = String(characters.prefix(position + 1))
+                position += 1
+                self.typeNext(characters, position: position, completion: completion)
+            } else {
+                completion()
+            }
+        }
+        self.typingWorkItem = item
+        DispatchQueue.main.async(execute: item)
+    }
+
+    private func typeNext(_ characters: [Character], position: Int, completion: @escaping () -> Void) {
+        guard position < characters.count else {
+            let item = DispatchWorkItem(block: completion)
+            self.typingWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+            return
+        }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.typingField.text = String(characters.prefix(position + 1))
+            self.typeNext(characters, position: position + 1, completion: completion)
+        }
+        self.typingWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: item)
+    }
+}
+
 final class VideoNavigationControllerDropContentItem: NavigationControllerDropContentItem {
     let itemNode: OverlayMediaItemNode
     
@@ -177,7 +484,7 @@ private final class PendingSwitchToChatLocation {
     }
 }
 
-class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
+class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecognizerDelegate {
     let context: AccountContext
     private(set) var chatLocation: ChatLocation
     private var chatLocationContextHolder: Atomic<ChatLocationContextHolder?>
@@ -1085,6 +1392,12 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
     override func didLoad() {
         super.didLoad()
         
+        let scenarioStudioTap = UITapGestureRecognizer(target: self, action: #selector(self.toggleScenarioStudio))
+        scenarioStudioTap.numberOfTapsRequired = 2
+        scenarioStudioTap.cancelsTouchesInView = false
+        scenarioStudioTap.delegate = self
+        self.view.addGestureRecognizer(scenarioStudioTap)
+        
         let recognizer = WindowPanRecognizer(target: nil, action: nil)
         recognizer.cancelsTouchesInView = false
         recognizer.delaysTouchesBegan = false
@@ -1132,6 +1445,31 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
         }
     }
     
+    @objc private func toggleScenarioStudio() {
+        if let overlay = self.view.subviews.first(where: { $0 is ScenarioStudioOverlay }) {
+            (overlay as? ScenarioStudioOverlay)?.removeFromSuperview()
+        } else {
+            let overlay = ScenarioStudioOverlay(frame: self.view.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            self.view.addSubview(overlay)
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var currentView = touch.view
+        while let view = currentView {
+            if view is ScenarioStudioOverlay {
+                return false
+            }
+            currentView = view.superview
+        }
+        return true
+    }
+
     private func updateIsEmpty(_ emptyType: ChatHistoryNodeLoadState.EmptyType?, wasLoading: Bool, animated: Bool) {
         self.emptyType = emptyType
         if let emptyType = emptyType, self.emptyNode == nil {
