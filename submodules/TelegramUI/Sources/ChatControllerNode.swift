@@ -139,7 +139,7 @@ private final class ScenarioStudioOverlay: UIView {
 
         let scriptLabel = UILabel()
         scriptLabel.text = "Сценарий (каждое сообщение с новой строки)"
-        scriptLabel.font = UIFont.semiboldSystemFont(ofSize: 14.0)
+        scriptLabel.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
         scriptLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(scriptLabel)
 
@@ -152,7 +152,7 @@ private final class ScenarioStudioOverlay: UIView {
 
         let previewLabel = UILabel()
         previewLabel.text = "Предпросмотр переписки"
-        previewLabel.font = UIFont.semiboldSystemFont(ofSize: 14.0)
+        previewLabel.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(previewLabel)
 
@@ -255,7 +255,7 @@ private final class ScenarioStudioOverlay: UIView {
             saveButton.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -8.0)
         ])
 
-        if let saved = UserDefaults.standard.dictionary(forKey: "BelgramScenarioStudio") as? [String: Any] {
+        if let saved = UserDefaults.standard.dictionary(forKey: "BelgramScenarioStudio") {
             self.titleField.text = saved["name"] as? String
             self.usernameField.text = saved["username"] as? String
             self.avatarField.text = saved["avatar"] as? String
