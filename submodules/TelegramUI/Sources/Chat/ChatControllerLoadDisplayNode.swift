@@ -1111,7 +1111,7 @@ extension ChatControllerImpl {
 
                         let demoDescription = requestedSlug == nil
                             ? "DEMO • Локальная демонстрация. Подарок не передан."
-                            : "DEMO • Локальный предпросмотр \(selectedGift.title ?? requestedSlug!). NFT не передан."
+                            : "DEMO • Локальный предпросмотр \(selectedGift.title ?? requestedSlug ?? "NFT"). NFT не передан."
 
                         let giftAction = TelegramMediaAction(action: .starGift(
                             gift: selectedGift,
