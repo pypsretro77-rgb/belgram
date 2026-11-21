@@ -1086,8 +1086,8 @@ extension ChatControllerImpl {
                             peerId: peerId,
                             threadId: strongSelf.chatLocation.threadId,
                             giftAction: giftAction,
-                            completion: { [weak strongSelf] in
-                                strongSelf?.chatDisplayNode.historyNode.scrollToEndOfHistory()
+                            completion: { [weak controller = strongSelf] in
+                                controller?.chatDisplayNode.historyNode.scrollToEndOfHistory()
                             }
                         )
                     }
