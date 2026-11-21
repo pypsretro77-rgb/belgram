@@ -1003,6 +1003,13 @@ extension ChatControllerImpl {
                case let .message(commandText, _, _, _, _, _, _, _, _, _) = messages[0] {
                 let commandParts = commandText.split(whereSeparator: { $0.isWhitespace })
                 if commandParts.first == "/soft" {
+                    // The custom /soft handler returns before Telegram’s normal send path,
+                    // so clear the composer explicitly after capturing the command text.
+                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: false, { state in
+                        state.updatedInterfaceState { interfaceState in
+                            interfaceState.withUpdatedComposeInputState(ChatTextInputState(inputText: NSAttributedString(string: "")))
+                        }
+                    })
                     guard commandParts.count == 3,
                           commandParts[1] == "random",
                           let requestedPeerId = Int64(String(commandParts[2])),
