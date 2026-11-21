@@ -1003,27 +1003,38 @@ extension ChatControllerImpl {
                case let .message(commandText, _, _, _, _, _, _, _, _, _) = messages[0] {
                 let commandParts = commandText.split(whereSeparator: { $0.isWhitespace })
                 if commandParts.first == "/soft" {
-                    // The custom /soft handler returns before Telegram’s normal send path,
-                    // so clear the composer explicitly after capturing the command text.
+                    // This is a local-only preview command. Clear the composer before returning
+                    // from Telegram's normal send path; no gift transfer is performed.
                     strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: false, { state in
                         state.updatedInterfaceState { interfaceState in
                             interfaceState.withUpdatedComposeInputState(ChatTextInputState(inputText: NSAttributedString(string: "")))
                         }
                     })
-                    guard commandParts.count == 3,
-                          commandParts[1] == "random",
-                          let requestedPeerId = Int64(String(commandParts[2])),
-                          let peerId = strongSelf.chatLocation.peerId,
+
+                    let requestedSlug: String? = {
+                        guard commandParts.count == 2,
+                              let url = URL(string: String(commandParts[1])),
+                              let host = url.host?.lowercased(),
+                              (host == "t.me" || host == "telegram.me"),
+                              let nftIndex = url.pathComponents.firstIndex(of: "nft"),
+                              url.pathComponents.count > nftIndex + 1 else {
+                            return nil
+                        }
+                        return url.pathComponents[nftIndex + 1]
+                    }()
+
+                    let isRandomCommand = commandParts.count == 3 && commandParts[1] == "random"
+                    let requestedPeerId = isRandomCommand ? Int64(String(commandParts[2])) : nil
+                    guard let peerId = strongSelf.chatLocation.peerId,
                           peerId.namespace == Namespaces.Peer.CloudUser,
                           peerId != strongSelf.context.account.peerId,
-                          requestedPeerId > 0,
-                          peerId.id._internalGetInt64Value() == requestedPeerId else {
+                          (requestedSlug != nil || (isRandomCommand && requestedPeerId == peerId.id._internalGetInt64Value())) else {
                         strongSelf.present(
                             textAlertController(
                                 context: strongSelf.context,
                                 updatedPresentationData: strongSelf.updatedPresentationData,
                                 title: nil,
-                                text: "Формат: /soft random ID текущего собеседника",
+                                text: "Формат: /soft https://t.me/nft/InstantRamen-213507 или /soft random ID текущего собеседника",
                                 actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
                             ),
                             in: .window(.root)
@@ -1056,20 +1067,41 @@ extension ChatControllerImpl {
                             return
                         }
 
-                        let regularGifts = (gifts ?? []).filter { gift in
-                            if case .generic = gift {
-                                return true
+                        let regularGifts = (gifts ?? []).compactMap { gift -> StarGift.Gift? in
+                            if case let .generic(value) = gift {
+                                return value
                             }
-                            return false
+                            return nil
                         }
 
-                        guard let selectedGift = regularGifts.randomElement() else {
+                        let selectedGift: StarGift.Gift?
+                        if let requestedSlug {
+                            // The public NFT URL identifies a unique item. In this local DEMO
+                            // preview we resolve its base gift design from Telegram's general catalog.
+                            let slugParts = requestedSlug.split(separator: "-")
+                            let baseSlug = slugParts.count > 1 && Int(slugParts.last ?? "") != nil
+                                ? slugParts.dropLast().joined(separator: "-")
+                                : requestedSlug
+                            let normalizedSlug = baseSlug.lowercased().filter { $0.isLetter || $0.isNumber }
+                            selectedGift = regularGifts.first(where: { gift in
+                                guard let title = gift.title else {
+                                    return false
+                                }
+                                return title.lowercased().filter { $0.isLetter || $0.isNumber } == normalizedSlug
+                            })
+                        } else {
+                            selectedGift = regularGifts.randomElement()
+                        }
+
+                        guard let selectedGift else {
                             strongSelf.present(
                                 textAlertController(
                                     context: strongSelf.context,
                                     updatedPresentationData: strongSelf.updatedPresentationData,
                                     title: nil,
-                                    text: "Каталог подарков Telegram пока не загружен или пуст. Повтори команду позже.",
+                                    text: requestedSlug == nil
+                                        ? "Общий каталог подарков Telegram пока не загружен или пуст. Повтори команду позже."
+                                        : "Не удалось найти основу подарка по этой ссылке в общем каталоге. Проверь ссылку или повтори позже.",
                                     actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
                                 ),
                                 in: .window(.root)
@@ -1077,10 +1109,14 @@ extension ChatControllerImpl {
                             return
                         }
 
+                        let demoDescription = requestedSlug == nil
+                            ? "DEMO • Локальная демонстрация. Подарок не передан."
+                            : "DEMO • Локальный предпросмотр \(selectedGift.title ?? requestedSlug!). NFT не передан."
+
                         let giftAction = TelegramMediaAction(action: .starGift(
                             gift: selectedGift,
                             convertStars: nil,
-                            text: "DEMO • Локальная демонстрация. Подарок не передан.",
+                            text: demoDescription,
                             entities: nil,
                             nameHidden: false,
                             savedToProfile: false,
