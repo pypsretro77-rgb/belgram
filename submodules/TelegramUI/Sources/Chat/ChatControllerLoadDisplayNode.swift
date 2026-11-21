@@ -1005,7 +1005,7 @@ extension ChatControllerImpl {
                 if commandParts.first == "/soft" {
                     // This is a local-only preview command. Clear the composer before returning
                     // from Telegram's normal send path; no gift transfer is performed.
-                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: false, { state in
+                    strongSelf.updateChatPresentationInterfaceState(animated: false, interactive: false, { state in
                         state.updatedInterfaceState { interfaceState in
                             interfaceState.withUpdatedComposeInputState(ChatTextInputState(inputText: NSAttributedString(string: "")))
                         }
