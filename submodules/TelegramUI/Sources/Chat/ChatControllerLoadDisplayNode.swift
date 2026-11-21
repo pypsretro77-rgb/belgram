@@ -1038,9 +1038,10 @@ extension ChatControllerImpl {
                         return
                     }
 
-                    let giftsSignal = strongSelf.context.engine.payments.keepStarGiftsUpdated()
-                    |> map { _ -> [StarGift]? in nil }
-                    |> then(strongSelf.context.engine.payments.cachedStarGifts() |> take(1))
+                    let giftsSignal = softCompleting(strongSelf.context.engine.payments.keepStarGiftsUpdated(), with: ())
+                    |> mapToSignal { _ in
+                        strongSelf.context.engine.payments.cachedStarGifts() |> take(1)
+                    }
                     |> deliverOnMainQueue
 
                     let _ = giftsSignal.start(next: { [weak strongSelf] gifts in
@@ -5753,5 +5754,15 @@ extension ChatControllerImpl {
         if self.didAppear {
             historyNode.canReadHistory.set(self.computedCanReadHistoryPromise.get())
         }
+    }
+}
+
+
+private func softCompleting<T>(_ signal: Signal<Never, NoError>, with value: T) -> Signal<T, NoError> {
+    return Signal<T, NoError> { subscriber in
+        return signal.start(completed: {
+            subscriber.putNext(value)
+            subscriber.putCompletion()
+        })
     }
 }
