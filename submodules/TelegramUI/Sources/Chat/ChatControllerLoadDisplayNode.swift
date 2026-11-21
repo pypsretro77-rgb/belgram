@@ -1038,72 +1038,59 @@ extension ChatControllerImpl {
                         return
                     }
 
-                    let profileGifts = ProfileGiftsContext(
-                        account: strongSelf.context.account,
-                        peerId: peerId,
-                        filter: [.unique, .displayed],
-                        limit: 100
-                    )
+                    let giftsSignal = strongSelf.context.engine.payments.keepStarGiftsUpdated()
+                    |> then(strongSelf.context.engine.payments.cachedStarGifts() |> take(1))
+                    |> deliverOnMainQueue
 
-                    let _ = (profileGifts.state
-                    |> filter { state in
-                        if case .ready = state.dataState {
-                            return true
-                        }
-                        return false
-                    }
-                    |> take(1)
-                    |> deliverOnMainQueue).start(next: { [weak strongSelf, profileGifts] state in
+                    let _ = giftsSignal.start(next: { [weak strongSelf] gifts in
                         guard let strongSelf else {
-                            let _ = profileGifts
                             return
                         }
 
-                        let uniqueGifts = state.filteredGifts.filter { gift in
-                            if case .unique = gift.gift {
+                        let regularGifts = (gifts ?? []).filter { gift in
+                            if case .generic = gift {
                                 return true
                             }
                             return false
                         }
 
-                        guard let selectedGift = uniqueGifts.randomElement() else {
+                        guard let selectedGift = regularGifts.randomElement() else {
                             strongSelf.present(
                                 textAlertController(
                                     context: strongSelf.context,
                                     updatedPresentationData: strongSelf.updatedPresentationData,
                                     title: nil,
-                                    text: "У этого пользователя нет доступных публичных коллекционных подарков для DEMO-карточки.",
+                                    text: "Каталог подарков Telegram пока не загружен или пуст. Повтори команду позже.",
                                     actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
                                 ),
                                 in: .window(.root)
                             )
-                            let _ = profileGifts
                             return
                         }
 
-                        let giftAction = TelegramMediaAction(action: .starGiftUnique(
-                            gift: selectedGift.gift,
-                            isUpgrade: false,
-                            isTransferred: false,
-                            savedToProfile: false,
-                            canExportDate: nil,
-                            transferStars: nil,
-                            isRefunded: selectedGift.isRefunded,
-                            isPrepaidUpgrade: false,
-                            peerId: strongSelf.context.account.peerId,
-                            senderId: peerId,
-                            savedId: nil,
-                            resaleAmount: nil,
-                            canTransferDate: nil,
-                            canResaleDate: nil,
-                            dropOriginalDetailsStars: nil,
-                            assigned: false,
-                            fromOffer: false,
-                            canCraftAt: nil,
-                            isCrafted: false,
+                        let giftAction = TelegramMediaAction(action: .starGift(
+                            gift: selectedGift,
+                            convertStars: nil,
                             text: "DEMO • Локальная демонстрация. Подарок не передан.",
                             entities: nil,
-                            nameHidden: false
+                            nameHidden: false,
+                            savedToProfile: false,
+                            converted: false,
+                            upgraded: false,
+                            canUpgrade: false,
+                            upgradeStars: nil,
+                            isRefunded: false,
+                            isPrepaidUpgrade: false,
+                            upgradeMessageId: nil,
+                            peerId: nil,
+                            senderId: nil,
+                            savedId: nil,
+                            prepaidUpgradeHash: nil,
+                            giftMessageId: nil,
+                            upgradeSeparate: false,
+                            isAuctionAcquired: false,
+                            toPeerId: nil,
+                            number: nil
                         ))
 
                         strongSelf.addLocalSoftGiftMessage(
@@ -1114,8 +1101,6 @@ extension ChatControllerImpl {
                                 strongSelf?.chatDisplayNode.historyNode.scrollToEndOfHistory()
                             }
                         )
-
-                        let _ = profileGifts
                     })
 
                     return
