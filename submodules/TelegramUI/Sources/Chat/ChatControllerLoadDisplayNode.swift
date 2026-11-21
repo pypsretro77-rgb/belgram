@@ -1103,7 +1103,7 @@ extension ChatControllerImpl {
                             let title = uniqueGift.title
                             addDemoGift(
                                 .unique(uniqueGift),
-                                "DEMO • Локальный предпросмотр коллекционного NFT \\(title). NFT не передан."
+                                "DEMO • Локальный предпросмотр коллекционного NFT \(title). NFT не передан."
                             )
                         }, error: { [weak strongSelf] _ in
                             guard let strongSelf else {
