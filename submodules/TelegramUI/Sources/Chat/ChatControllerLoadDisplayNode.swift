@@ -1039,6 +1039,7 @@ extension ChatControllerImpl {
                     }
 
                     let giftsSignal = strongSelf.context.engine.payments.keepStarGiftsUpdated()
+                    |> map { _ -> [StarGift]? in nil }
                     |> then(strongSelf.context.engine.payments.cachedStarGifts() |> take(1))
                     |> deliverOnMainQueue
 
