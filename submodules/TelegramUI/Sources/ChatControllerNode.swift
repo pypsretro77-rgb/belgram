@@ -318,7 +318,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
     }
     arguments.save = {
         onSave(currentScenario)
-        editorController?.pop()
+        editorController?.dismiss()
     }
     arguments.addMessage = {
         currentScenario.messages.append("")
