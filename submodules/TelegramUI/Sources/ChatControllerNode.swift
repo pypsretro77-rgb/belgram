@@ -193,7 +193,7 @@ private final class ScenarioStudioEditorArguments {
 }
 
 private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
-    enum Field {
+    enum Field: Equatable {
         case name
         case contact
         case username
@@ -398,8 +398,6 @@ private func scenarioStudioMenuController(context: AccountContext) -> ItemListCo
         controller?.dismiss()
     }
     arguments.select = { [weak controller] index in
-        let scenarios = scenariosPromise.get()
-        _ = scenarios
         let values = ScenarioStudioModel.load()
         guard values.indices.contains(index) else { return }
         let editor = scenarioStudioEditorController(context: context, scenario: values[index], onSave: { updated in
@@ -420,7 +418,7 @@ private func scenarioStudioMenuController(context: AccountContext) -> ItemListCo
         let newIndex = values.count - 1
         let editor = scenarioStudioEditorController(context: context, scenario: scenario, onSave: { updated in
             var current = ScenarioStudioModel.load()
-            guard current.indices.indices.contains(newIndex) else { return }
+            guard current.indices.contains(newIndex) else { return }
             current[newIndex] = updated
             ScenarioStudioModel.save(current)
             scenariosPromise.set(current)
