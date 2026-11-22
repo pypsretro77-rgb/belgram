@@ -75,10 +75,11 @@ import RichTextEditorCore
 import RichTextEditorUIKit
 import RichTextEditorMediaView
 import InstantPageUI
+import ItemListUI
 import ChatRichTextEditorComposer
 
-private final class ScenarioStudioOverlay: UIView {
-    fileprivate struct Scenario: Codable {
+private enum ScenarioStudioModel {
+    fileprivate struct Scenario: Codable, Equatable {
         var name: String
         var contact: String
         var username: String
@@ -116,509 +117,322 @@ private final class ScenarioStudioOverlay: UIView {
         }
     }
 
-    private let header = UIView()
-    private let titleLabel = UILabel()
-    private let closeButton = UIButton(type: .system)
-    private let addButton = UIButton(type: .system)
-    private let scrollView = UIScrollView()
-    private let contentStack = UIStackView()
-    private var scenarios: [Scenario] = []
-    private var selectedIndex: Int?
-    private var messageEditors: [UITextView] = []
-    private var nameField = UITextField()
-    private var contactField = UITextField()
-    private var avatarField = UITextField()
-    private var usernameField = UITextField()
-    private var intervalField = UITextField()
-    private var premiumSwitch = UISwitch()
-    private var premiumBadgeButton = UIButton(type: .system)
-    private var detailTopBar: UIStackView?
-    private var runButton: UIButton?
+    private static let storageKey = "BelgramScenarioStudio.List"
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        self.backgroundColor = UIColor(red: 0.10, green: 0.15, blue: 0.19, alpha: 1.0)
-        self.loadScenarios()
-        self.buildShell()
-        self.showScenarioList(animated: false)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func buildShell() {
-        self.header.translatesAutoresizingMaskIntoConstraints = false
-        self.addSubview(self.header)
-        self.header.backgroundColor = UIColor(red: 0.10, green: 0.15, blue: 0.19, alpha: 1.0)
-
-        self.closeButton.setTitle("×", for: .normal)
-        self.closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 32.0, weight: .light)
-        self.closeButton.tintColor = .white
-        self.closeButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
-        self.closeButton.layer.cornerRadius = 18.0
-        self.closeButton.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
-        self.closeButton.translatesAutoresizingMaskIntoConstraints = false
-        self.header.addSubview(self.closeButton)
-
-        self.titleLabel.text = "Студия сценариев"
-        self.titleLabel.textColor = .white
-        self.titleLabel.font = UIFont.systemFont(ofSize: 17.0, weight: .semibold)
-        self.titleLabel.textAlignment = .center
-        self.titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        self.header.addSubview(self.titleLabel)
-
-        self.addButton.setTitle("+", for: .normal)
-        self.addButton.titleLabel?.font = UIFont.systemFont(ofSize: 30.0, weight: .regular)
-        self.addButton.tintColor = .white
-        self.addButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
-        self.addButton.layer.cornerRadius = 18.0
-        self.addButton.addTarget(self, action: #selector(addPressed), for: .touchUpInside)
-        self.addButton.translatesAutoresizingMaskIntoConstraints = false
-        self.header.addSubview(self.addButton)
-
-        self.scrollView.translatesAutoresizingMaskIntoConstraints = false
-        self.scrollView.alwaysBounceVertical = true
-        self.addSubview(self.scrollView)
-
-        self.contentStack.axis = .vertical
-        self.contentStack.spacing = 10.0
-        self.contentStack.alignment = .fill
-        self.contentStack.translatesAutoresizingMaskIntoConstraints = false
-        self.scrollView.addSubview(self.contentStack)
-
-        NSLayoutConstraint.activate([
-            self.header.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor),
-            self.header.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-            self.header.trailingAnchor.constraint(equalTo: self.trailingAnchor),
-            self.header.heightAnchor.constraint(equalToConstant: 58.0),
-
-            self.closeButton.leadingAnchor.constraint(equalTo: self.header.leadingAnchor, constant: 12.0),
-            self.closeButton.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
-            self.closeButton.widthAnchor.constraint(equalToConstant: 36.0),
-            self.closeButton.heightAnchor.constraint(equalToConstant: 36.0),
-
-            self.titleLabel.centerXAnchor.constraint(equalTo: self.header.centerXAnchor),
-            self.titleLabel.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
-
-            self.addButton.trailingAnchor.constraint(equalTo: self.header.trailingAnchor, constant: -12.0),
-            self.addButton.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
-            self.addButton.widthAnchor.constraint(equalToConstant: 36.0),
-            self.addButton.heightAnchor.constraint(equalToConstant: 36.0),
-
-            self.scrollView.topAnchor.constraint(equalTo: self.header.bottomAnchor),
-            self.scrollView.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-            self.scrollView.trailingAnchor.constraint(equalTo: self.trailingAnchor),
-            self.scrollView.bottomAnchor.constraint(equalTo: self.safeAreaLayoutGuide.bottomAnchor),
-
-            self.contentStack.topAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.topAnchor, constant: 12.0),
-            self.contentStack.leadingAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.leadingAnchor, constant: 10.0),
-            self.contentStack.trailingAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.trailingAnchor, constant: -10.0),
-            self.contentStack.bottomAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.bottomAnchor, constant: -18.0)
-        ])
-    }
-
-    private func loadScenarios() {
-        if let data = UserDefaults.standard.data(forKey: "BelgramScenarioStudio.List"),
-           let saved = try? JSONDecoder().decode([Scenario].self, from: data) {
-            self.scenarios = saved
+    static func load() -> [Scenario] {
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let saved = try? JSONDecoder().decode([Scenario].self, from: data), !saved.isEmpty {
+            return saved
         }
-        if self.scenarios.isEmpty {
-            self.scenarios = [
-                Scenario(name: "Диалог", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Я: Привет, как дела?", "Собеседник: Отлично!", "Я: Рад это слышать"]),
-                Scenario(name: "Ку", contact: "Собеседник", avatar: "", interval: "1", messages: ["Собеседник: Ку", "Я: Привет!", "Собеседник: Как ты?"]),
-                Scenario(name: "Нфт", contact: "Собеседник", avatar: "", interval: "1", messages: ["Собеседник: Телеграм подарки", "Я: Давай статую", "Собеседник: Хочешь подарок кое что круче?"]),
-                Scenario(name: "Выбирай", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Собеседник: Выбирай но не ошибись с выбором"])
-            ]
+        return [
+            Scenario(name: "Диалог", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Я: Привет, как дела?", "Собеседник: Отлично!", "Я: Рад это слышать"]),
+            Scenario(name: "Ку", contact: "Собеседник", avatar: "", interval: "1", messages: ["Собеседник: Ку", "Я: Привет!", "Собеседник: Как ты?"]),
+            Scenario(name: "Нфт", contact: "Собеседник", avatar: "", interval: "1", messages: ["Собеседник: Телеграм подарки", "Я: Давай статую", "Собеседник: Хочешь подарок кое что круче?"]),
+            Scenario(name: "Выбирай", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Собеседник: Выбирай но не ошибись с выбором"])
+        ]
+    }
+
+    static func save(_ scenarios: [Scenario]) {
+        if let data = try? JSONEncoder().encode(scenarios) {
+            UserDefaults.standard.set(data, forKey: storageKey)
         }
-    }
-
-    private func persistScenarios() {
-        if let data = try? JSONEncoder().encode(self.scenarios) {
-            UserDefaults.standard.set(data, forKey: "BelgramScenarioStudio.List")
-        }
-    }
-
-    private func clearContent() {
-        self.contentStack.arrangedSubviews.forEach { view in
-            self.contentStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        self.messageEditors.removeAll()
-    }
-
-    private func showScenarioList(animated: Bool) {
-        self.selectedIndex = nil
-        self.titleLabel.text = "Студия сценариев"
-        self.addButton.isHidden = false
-        self.clearContent()
-
-        let note = UILabel()
-        note.text = "Локальный чат · без отправки в Telegram"
-        note.textColor = UIColor(white: 0.68, alpha: 1.0)
-        note.font = UIFont.systemFont(ofSize: 11.0, weight: .medium)
-        note.textAlignment = .center
-        self.contentStack.addArrangedSubview(note)
-
-        for index in self.scenarios.indices {
-            let scenario = self.scenarios[index]
-            let card = UIButton(type: .system)
-            card.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
-            card.layer.cornerRadius = 15.0
-            card.contentHorizontalAlignment = .left
-            var cardConfiguration = UIButton.Configuration.plain()
-            cardConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 12.0, leading: 14.0, bottom: 12.0, trailing: 14.0)
-            card.configuration = cardConfiguration
-            card.tag = index
-            card.addTarget(self, action: #selector(scenarioPressed(_:)), for: .touchUpInside)
-
-            let title = UILabel()
-            title.text = scenario.name
-            title.textColor = .white
-            title.font = UIFont.systemFont(ofSize: 15.0, weight: .medium)
-            let subtitle = UILabel()
-            subtitle.text = "\(scenario.messages.count) сообщений · \(scenario.contact)"
-            subtitle.textColor = UIColor(white: 0.62, alpha: 1.0)
-            subtitle.font = UIFont.systemFont(ofSize: 12.0)
-            let arrow = UILabel()
-            arrow.text = "›"
-            arrow.textColor = UIColor(white: 0.65, alpha: 1.0)
-            arrow.font = UIFont.systemFont(ofSize: 25.0, weight: .light)
-            arrow.translatesAutoresizingMaskIntoConstraints = false
-            title.translatesAutoresizingMaskIntoConstraints = false
-            subtitle.translatesAutoresizingMaskIntoConstraints = false
-            card.addSubview(title)
-            card.addSubview(subtitle)
-            card.addSubview(arrow)
-            NSLayoutConstraint.activate([
-                title.topAnchor.constraint(equalTo: card.topAnchor, constant: 11.0),
-                title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14.0),
-                title.trailingAnchor.constraint(lessThanOrEqualTo: arrow.leadingAnchor, constant: -8.0),
-                subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3.0),
-                subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-                subtitle.trailingAnchor.constraint(equalTo: title.trailingAnchor),
-                subtitle.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -11.0),
-                arrow.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14.0),
-                arrow.centerYAnchor.constraint(equalTo: card.centerYAnchor)
-            ])
-            card.heightAnchor.constraint(greaterThanOrEqualToConstant: 62.0).isActive = true
-            self.contentStack.addArrangedSubview(card)
-        }
-
-        if animated {
-            self.contentStack.alpha = 0.0
-            UIView.animate(withDuration: 0.2) { self.contentStack.alpha = 1.0 }
-        }
-    }
-
-    @objc private func scenarioPressed(_ sender: UIButton) {
-        guard self.scenarios.indices.contains(sender.tag) else { return }
-        self.showEditor(index: sender.tag)
-    }
-
-    @objc private func addPressed() {
-        if let index = self.selectedIndex {
-            self.scenarios[index].messages.append("Собеседник: Новое сообщение")
-            self.persistScenarios()
-            self.showEditor(index: index)
-        } else {
-            let scenario = Scenario(name: "Новый сценарий", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Собеседник: Привет!"])
-            self.scenarios.append(scenario)
-            self.persistScenarios()
-            self.showEditor(index: self.scenarios.count - 1)
-        }
-    }
-
-    private func makeSectionTitle(_ text: String) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.textColor = UIColor(white: 0.68, alpha: 1.0)
-        label.font = UIFont.systemFont(ofSize: 13.0, weight: .semibold)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }
-
-    private func makeCard() -> UIView {
-        let view = UIView()
-        view.backgroundColor = UIColor(red: 0.14, green: 0.20, blue: 0.25, alpha: 1.0)
-        view.layer.cornerRadius = 15.0
-        return view
-    }
-
-    private func makeField(_ placeholder: String, value: String) -> UITextField {
-        let field = UITextField()
-        field.text = value
-        field.placeholder = placeholder
-        field.textColor = .white
-        field.tintColor = .systemBlue
-        field.font = UIFont.systemFont(ofSize: 15.0)
-        field.autocorrectionType = .no
-        field.borderStyle = .none
-        field.backgroundColor = .clear
-        field.translatesAutoresizingMaskIntoConstraints = false
-        return field
-    }
-
-    private func showEditor(index: Int) {
-        guard self.scenarios.indices.contains(index) else { return }
-        self.selectedIndex = index
-        self.titleLabel.text = self.scenarios[index].name
-        self.addButton.isHidden = true
-        self.clearContent()
-
-        let top = UIStackView()
-        top.axis = .horizontal
-        top.spacing = 7.0
-        top.alignment = .center
-        let contactButton = UIButton(type: .system)
-        contactButton.setTitle("Контакт", for: .normal)
-        contactButton.setTitleColor(.white, for: .normal)
-        contactButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
-        contactButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
-        contactButton.layer.cornerRadius = 18.0
-        var contactConfiguration = UIButton.Configuration.plain()
-        contactConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 9.0, leading: 13.0, bottom: 9.0, trailing: 13.0)
-        contactButton.configuration = contactConfiguration
-        let nameButton = UIButton(type: .system)
-        nameButton.setTitle(self.scenarios[index].name, for: .normal)
-        nameButton.setTitleColor(.white, for: .normal)
-        nameButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
-        nameButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
-        nameButton.layer.cornerRadius = 18.0
-        var nameConfiguration = UIButton.Configuration.plain()
-        nameConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 9.0, leading: 13.0, bottom: 9.0, trailing: 13.0)
-        nameButton.configuration = nameConfiguration
-        nameButton.addTarget(self, action: #selector(renameScenario), for: .touchUpInside)
-        let spacer = UIView()
-        let plus = UIButton(type: .system)
-        plus.setTitle("+", for: .normal)
-        plus.titleLabel?.font = UIFont.systemFont(ofSize: 25.0, weight: .regular)
-        plus.tintColor = .white
-        plus.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
-        plus.layer.cornerRadius = 18.0
-        plus.widthAnchor.constraint(equalToConstant: 36.0).isActive = true
-        plus.heightAnchor.constraint(equalToConstant: 36.0).isActive = true
-        plus.addTarget(self, action: #selector(addPressed), for: .touchUpInside)
-        let run = UIButton(type: .system)
-        run.setTitle("Запуск", for: .normal)
-        run.setTitleColor(.white, for: .normal)
-        run.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
-        run.backgroundColor = UIColor(red: 0.0, green: 0.72, blue: 0.82, alpha: 1.0)
-        run.layer.cornerRadius = 18.0
-        var runConfiguration = UIButton.Configuration.plain()
-        runConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 9.0, leading: 14.0, bottom: 9.0, trailing: 14.0)
-        run.configuration = runConfiguration
-        run.addTarget(self, action: #selector(runScenario), for: .touchUpInside)
-        self.runButton = run
-        top.addArrangedSubview(contactButton)
-        top.addArrangedSubview(nameButton)
-        top.addArrangedSubview(spacer)
-        top.addArrangedSubview(plus)
-        top.addArrangedSubview(run)
-        self.contentStack.addArrangedSubview(top)
-
-        self.contentStack.addArrangedSubview(self.makeSectionTitle("Параметры"))
-        let parameters = self.makeCard()
-        let contact = self.makeField("Собеседник", value: self.scenarios[index].contact)
-        let username = self.makeField("@username", value: self.scenarios[index].username)
-        let avatar = self.makeField("URL аватара", value: self.scenarios[index].avatar)
-        let interval = self.makeField("Задержка, сек.", value: self.scenarios[index].interval)
-        interval.keyboardType = .decimalPad
-        self.nameField = self.makeField("Название сценария", value: self.scenarios[index].name)
-        self.contactField = contact
-        self.usernameField = username
-        self.avatarField = avatar
-        self.intervalField = interval
-        let premiumLabel = UILabel()
-        premiumLabel.text = "Premium"
-        premiumLabel.textColor = .white
-        premiumLabel.font = UIFont.systemFont(ofSize: 15.0)
-        self.premiumSwitch = UISwitch()
-        self.premiumSwitch.isOn = self.scenarios[index].premium
-        self.premiumSwitch.addTarget(self, action: #selector(premiumChanged(_:)), for: .valueChanged)
-        self.premiumBadgeButton.setTitle(self.scenarios[index].premiumBadge, for: .normal)
-        self.premiumBadgeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18.0, weight: .semibold)
-        self.premiumBadgeButton.tintColor = UIColor(red: 0.35, green: 0.72, blue: 1.0, alpha: 1.0)
-        self.premiumBadgeButton.addTarget(self, action: #selector(choosePremiumBadge), for: .touchUpInside)
-        let parameterStack = UIStackView(arrangedSubviews: [contact, username, avatar, interval])
-        parameterStack.axis = .vertical
-        parameterStack.spacing = 11.0
-        parameterStack.translatesAutoresizingMaskIntoConstraints = false
-        let premiumRow = UIStackView(arrangedSubviews: [premiumLabel, self.premiumBadgeButton, UIView(), self.premiumSwitch])
-        premiumRow.axis = .horizontal
-        premiumRow.alignment = .center
-        premiumRow.translatesAutoresizingMaskIntoConstraints = false
-        parameters.addSubview(parameterStack)
-        parameters.addSubview(premiumRow)
-        NSLayoutConstraint.activate([
-            parameterStack.topAnchor.constraint(equalTo: parameters.topAnchor, constant: 13.0),
-            parameterStack.leadingAnchor.constraint(equalTo: parameters.leadingAnchor, constant: 13.0),
-            parameterStack.trailingAnchor.constraint(equalTo: parameters.trailingAnchor, constant: -13.0),
-            premiumRow.topAnchor.constraint(equalTo: parameterStack.bottomAnchor, constant: 12.0),
-            premiumRow.leadingAnchor.constraint(equalTo: parameterStack.leadingAnchor),
-            premiumRow.trailingAnchor.constraint(equalTo: parameterStack.trailingAnchor),
-            premiumRow.bottomAnchor.constraint(equalTo: parameters.bottomAnchor, constant: -12.0)
-        ])
-        [contact, username, avatar, interval].forEach { $0.heightAnchor.constraint(equalToConstant: 30.0).isActive = true }
-        self.contentStack.addArrangedSubview(parameters)
-
-        self.contentStack.addArrangedSubview(self.makeSectionTitle("Сообщения по порядку"))
-        for (messageIndex, message) in self.scenarios[index].messages.enumerated() {
-            let row = self.makeCard()
-            let editor = UITextView()
-            editor.text = message
-            editor.textColor = .white
-            editor.font = UIFont.systemFont(ofSize: 15.0)
-            editor.backgroundColor = .clear
-            editor.isScrollEnabled = false
-            editor.textContainerInset = UIEdgeInsets(top: 10.0, left: 9.0, bottom: 10.0, right: 9.0)
-            editor.translatesAutoresizingMaskIntoConstraints = false
-            row.addSubview(editor)
-            let delayLabel = UILabel()
-            delayLabel.text = "Задержка перед сообщением: \(self.scenarios[index].interval) сек."
-            delayLabel.textColor = UIColor(white: 0.62, alpha: 1.0)
-            delayLabel.font = UIFont.systemFont(ofSize: 11.0)
-            delayLabel.translatesAutoresizingMaskIntoConstraints = false
-            row.addSubview(delayLabel)
-            NSLayoutConstraint.activate([
-                editor.topAnchor.constraint(equalTo: row.topAnchor, constant: 3.0),
-                editor.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4.0),
-                editor.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4.0),
-                editor.heightAnchor.constraint(greaterThanOrEqualToConstant: 42.0),
-                delayLabel.topAnchor.constraint(equalTo: editor.bottomAnchor, constant: 0.0),
-                delayLabel.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 13.0),
-                delayLabel.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -13.0),
-                delayLabel.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -10.0)
-            ])
-            editor.tag = messageIndex
-            self.messageEditors.append(editor)
-            self.contentStack.addArrangedSubview(row)
-        }
-
-        let save = UIButton(type: .system)
-        save.setTitle("Сохранить сценарий", for: .normal)
-        save.setTitleColor(.white, for: .normal)
-        save.backgroundColor = UIColor(white: 0.22, alpha: 1.0)
-        save.layer.cornerRadius = 12.0
-        save.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
-        save.addTarget(self, action: #selector(saveScenario), for: .touchUpInside)
-        self.contentStack.addArrangedSubview(save)
-
-        let back = UIButton(type: .system)
-        back.setTitle("← Все сценарии", for: .normal)
-        back.setTitleColor(UIColor(white: 0.75, alpha: 1.0), for: .normal)
-        back.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
-        self.contentStack.addArrangedSubview(back)
-
-        self.contentStack.setNeedsLayout()
-        self.scrollView.setContentOffset(.zero, animated: false)
-    }
-
-    @objc private func renameScenario() {
-        guard let index = self.selectedIndex else { return }
-        let alert = UIAlertController(title: "Название сценария", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.text = self.scenarios[index].name }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Сохранить", style: .default) { [weak self, weak alert] _ in
-            guard let self, let value = alert?.textFields?.first?.text, !value.isEmpty else { return }
-            self.scenarios[index].name = value
-            self.persistScenarios()
-            self.showEditor(index: index)
-        })
-        self.findViewController()?.present(alert, animated: true)
-    }
-
-    @objc private func premiumChanged(_ sender: UISwitch) {
-        guard let index = self.selectedIndex, self.scenarios.indices.contains(index) else { return }
-        self.scenarios[index].premium = sender.isOn
-        self.persistScenarios()
-    }
-
-    @objc private func choosePremiumBadge() {
-        guard let index = self.selectedIndex else { return }
-        let alert = UIAlertController(title: "Значок Premium", message: "Выбери отображение рядом с именем", preferredStyle: .actionSheet)
-        for badge in ["★", "✦", "⭐", "💎", "ᴘ"] {
-            alert.addAction(UIAlertAction(title: badge, style: .default) { [weak self] _ in
-                guard let self, self.scenarios.indices.contains(index) else { return }
-                self.scenarios[index].premiumBadge = badge
-                self.persistScenarios()
-                self.showEditor(index: index)
-            })
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = self.premiumBadgeButton
-            popover.sourceRect = self.premiumBadgeButton.bounds
-        }
-        self.findViewController()?.present(alert, animated: true)
-    }
-
-    @objc private func saveScenario() {
-        guard let index = self.selectedIndex else { return }
-        self.scenarios[index].contact = self.contactField.text ?? "Собеседник"
-        self.scenarios[index].avatar = self.avatarField.text ?? ""
-        self.scenarios[index].username = self.usernameField.text ?? "@username"
-        self.scenarios[index].premium = self.premiumSwitch.isOn
-        self.scenarios[index].interval = self.intervalField.text ?? "0.8"
-        self.scenarios[index].messages = self.messageEditors.map { $0.text }
-        self.persistScenarios()
-        self.showEditor(index: index)
-    }
-
-    @objc private func runScenario() {
-        guard let index = self.selectedIndex, self.scenarios.indices.contains(index) else { return }
-        self.scenarios[index].contact = self.contactField.text ?? "Собеседник"
-        self.scenarios[index].avatar = self.avatarField.text ?? ""
-        self.scenarios[index].username = self.usernameField.text ?? "@username"
-        self.scenarios[index].premium = self.premiumSwitch.isOn
-        self.scenarios[index].interval = self.intervalField.text ?? "0.8"
-        self.scenarios[index].messages = self.messageEditors.map { $0.text }
-        self.persistScenarios()
-
-        let chat = ScenarioChatPreview(scenario: self.scenarios[index]) { [weak self] in
-            guard let self else { return }
-            self.showEditor(index: index)
-        }
-        chat.translatesAutoresizingMaskIntoConstraints = false
-        self.addSubview(chat)
-        NSLayoutConstraint.activate([
-            chat.topAnchor.constraint(equalTo: self.topAnchor),
-            chat.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-            chat.trailingAnchor.constraint(equalTo: self.trailingAnchor),
-            chat.bottomAnchor.constraint(equalTo: self.bottomAnchor)
-        ])
-        self.bringSubviewToFront(chat)
-    }
-
-    @objc private func backPressed() {
-        self.persistScenarios()
-        self.showScenarioList(animated: true)
-    }
-
-    @objc private func closePressed() {
-        self.endEditing(true)
-        UIView.animate(withDuration: 0.18, animations: {
-            self.alpha = 0.0
-            self.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
-        }, completion: { _ in
-            self.removeFromSuperview()
-        })
-    }
-
-    private func findViewController() -> UIViewController? {
-        var responder: UIResponder? = self
-        while let current = responder {
-            if let controller = current as? UIViewController {
-                return controller
-            }
-            responder = current.next
-        }
-        return nil
     }
 }
 
+private final class ScenarioStudioMenuArguments {
+    var select: (Int) -> Void = { _ in }
+    var add: () -> Void = {}
+    var close: () -> Void = {}
+}
+
+private enum ScenarioStudioMenuEntry: ItemListNodeEntry {
+    case information
+    case scenario(index: Int, value: ScenarioStudioModel.Scenario)
+
+    var section: ItemListSectionId { return 0 }
+
+    var stableId: Int32 {
+        switch self {
+        case .information:
+            return 0
+        case let .scenario(index, _):
+            return Int32(index + 1)
+        }
+    }
+
+    static func < (lhs: ScenarioStudioMenuEntry, rhs: ScenarioStudioMenuEntry) -> Bool {
+        return lhs.stableId < rhs.stableId
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        let arguments = arguments as! ScenarioStudioMenuArguments
+        switch self {
+        case .information:
+            return ItemListTextItem(presentationData: presentationData, text: .plain("Локальный режим · сообщения не отправляются"), sectionId: self.section, style: .blocks, textAlignment: .center)
+        case let .scenario(index, scenario):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: scenario.name,
+                label: "\(scenario.messages.count) сообщений · \(scenario.contact)",
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.select(index)
+                }
+            )
+        }
+    }
+}
+
+private final class ScenarioStudioEditorArguments {
+    var current: () -> ScenarioStudioModel.Scenario = { ScenarioStudioModel.Scenario(name: "", contact: "", avatar: "", interval: "0.8", messages: []) }
+    var update: (ScenarioStudioModel.Scenario) -> Void = { _ in }
+    var save: () -> Void = {}
+    var addMessage: () -> Void = {}
+}
+
+private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
+    enum Field {
+        case name
+        case contact
+        case username
+        case avatar
+        case interval
+    }
+
+    case parametersHeader
+    case field(Field, title: String, value: String, placeholder: String, id: Int32)
+    case premium
+    case messagesHeader
+    case message(index: Int, value: String)
+    case save
+
+    var section: ItemListSectionId {
+        switch self {
+        case .parametersHeader, .field, .premium:
+            return 0
+        case .messagesHeader, .message:
+            return 1
+        case .save:
+            return 2
+        }
+    }
+
+    var stableId: Int32 {
+        switch self {
+        case .parametersHeader: return 0
+        case let .field(_, _, _, _, id): return id
+        case .premium: return 5
+        case .messagesHeader: return 6
+        case let .message(index, _): return 100 + Int32(index)
+        case .save: return 10000
+        }
+    }
+
+    static func < (lhs: ScenarioStudioEditorEntry, rhs: ScenarioStudioEditorEntry) -> Bool {
+        return lhs.stableId < rhs.stableId
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        let arguments = arguments as! ScenarioStudioEditorArguments
+        switch self {
+        case .parametersHeader:
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: "Параметры", sectionId: self.section)
+        case let .field(field, title, value, placeholder, _):
+            let attributedTitle = NSAttributedString(string: title, font: Font.regular(presentationData.fontSize.itemListBaseFontSize), textColor: presentationData.theme.list.itemPrimaryTextColor)
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: attributedTitle,
+                text: value,
+                placeholder: placeholder,
+                type: field == .interval ? .decimal : .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    var scenario = arguments.current()
+                    switch field {
+                    case .name: scenario.name = value
+                    case .contact: scenario.contact = value
+                    case .username: scenario.username = value
+                    case .avatar: scenario.avatar = value
+                    case .interval: scenario.interval = value
+                    }
+                    arguments.update(scenario)
+                },
+                action: {}
+            )
+        case .premium:
+            let scenario = arguments.current()
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Premium",
+                value: scenario.premium,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    var updated = arguments.current()
+                    updated.premium = value
+                    arguments.update(updated)
+                }
+            )
+        case .messagesHeader:
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: "Сообщения по порядку", actionText: "Добавить", action: {
+                arguments.addMessage()
+            }, sectionId: self.section)
+        case let .message(index, value):
+            return ItemListMultilineInputItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                text: value,
+                placeholder: "Сообщение \(index + 1)",
+                maxLength: nil,
+                sectionId: self.section,
+                style: .blocks,
+                textUpdated: { value in
+                    var scenario = arguments.current()
+                    guard scenario.messages.indices.contains(index) else { return }
+                    scenario.messages[index] = value
+                    arguments.update(scenario)
+                }
+            )
+        case .save:
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Сохранить сценарий", kind: .generic, alignment: .center, sectionId: self.section, style: .blocks, action: {
+                arguments.save()
+            })
+        }
+    }
+}
+
+private func scenarioStudioEditorController(context: AccountContext, scenario: ScenarioStudioModel.Scenario, onSave: @escaping (ScenarioStudioModel.Scenario) -> Void) -> ItemListController {
+    var currentScenario = scenario
+    let scenarioPromise = ValuePromise<ScenarioStudioModel.Scenario>(scenario, ignoreRepeated: ==)
+    let arguments = ScenarioStudioEditorArguments()
+    var editorController: ItemListController?
+
+    arguments.current = { currentScenario }
+    arguments.update = { updated in
+        currentScenario = updated
+        scenarioPromise.set(updated)
+    }
+    arguments.save = {
+        onSave(currentScenario)
+        editorController?.pop()
+    }
+    arguments.addMessage = {
+        currentScenario.messages.append("")
+        scenarioPromise.set(currentScenario)
+    }
+
+    let state = combineLatest(context.sharedContext.presentationData, scenarioPromise.get())
+    |> deliverOnMainQueue
+    |> map { presentationData, scenario -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let itemPresentationData = ItemListPresentationData(presentationData)
+        var entries: [ScenarioStudioEditorEntry] = [
+            .parametersHeader,
+            .field(.name, title: "Название", value: scenario.name, placeholder: "Название сценария", id: 1),
+            .field(.contact, title: "Собеседник", value: scenario.contact, placeholder: "Имя контакта", id: 2),
+            .field(.username, title: "Username", value: scenario.username, placeholder: "@username", id: 3),
+            .field(.avatar, title: "Аватар", value: scenario.avatar, placeholder: "URL аватара", id: 4),
+            .field(.interval, title: "Задержка, сек.", value: scenario.interval, placeholder: "0.8", id: 5),
+            .premium,
+            .messagesHeader
+        ]
+        for (index, message) in scenario.messages.enumerated() {
+            entries.append(.message(index: index, value: message))
+        }
+        entries.append(.save)
+
+        let controllerState = ItemListControllerState(
+            presentationData: itemPresentationData,
+            title: .text(scenario.name),
+            leftNavigationButton: nil,
+            rightNavigationButton: nil,
+            secondaryRightNavigationButton: nil,
+            backNavigationButton: ItemListBackButton(title: "Назад")
+        )
+        let listState = ItemListNodeState(presentationData: itemPresentationData, entries: entries, style: .blocks, animateChanges: true)
+        return (controllerState, (listState, arguments))
+    }
+
+    let controller = ItemListController(context: context, state: state)
+    editorController = controller
+    controller.navigationPresentation = .modal
+    return controller
+}
+
+private func scenarioStudioMenuController(context: AccountContext) -> ItemListController {
+    let scenariosPromise = ValuePromise<[ScenarioStudioModel.Scenario]>(ScenarioStudioModel.load(), ignoreRepeated: ==)
+    let arguments = ScenarioStudioMenuArguments()
+    var menuController: ItemListController?
+
+    let state = combineLatest(context.sharedContext.presentationData, scenariosPromise.get())
+    |> deliverOnMainQueue
+    |> map { presentationData, scenarios -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let itemPresentationData = ItemListPresentationData(presentationData)
+        var entries: [ScenarioStudioMenuEntry] = [.information]
+        for (index, scenario) in scenarios.enumerated() {
+            entries.append(.scenario(index: index, value: scenario))
+        }
+        let controllerState = ItemListControllerState(
+            presentationData: itemPresentationData,
+            title: .text("Студия сценариев"),
+            leftNavigationButton: ItemListNavigationButton(content: .icon(.close), style: .regular, enabled: true, action: {
+                arguments.close()
+            }),
+            rightNavigationButton: ItemListNavigationButton(content: .icon(.add), style: .regular, enabled: true, action: {
+                arguments.add()
+            }),
+            backNavigationButton: nil
+        )
+        let listState = ItemListNodeState(presentationData: itemPresentationData, entries: entries, style: .blocks, animateChanges: true)
+        return (controllerState, (listState, arguments))
+    }
+
+    let controller = ItemListController(context: context, state: state)
+    menuController = controller
+    controller.navigationPresentation = .modal
+
+    arguments.close = { [weak controller] in
+        controller?.dismiss()
+    }
+    arguments.select = { [weak controller] index in
+        let scenarios = scenariosPromise.get()
+        _ = scenarios
+        let values = ScenarioStudioModel.load()
+        guard values.indices.contains(index) else { return }
+        let editor = scenarioStudioEditorController(context: context, scenario: values[index], onSave: { updated in
+            var current = ScenarioStudioModel.load()
+            guard current.indices.contains(index) else { return }
+            current[index] = updated
+            ScenarioStudioModel.save(current)
+            scenariosPromise.set(current)
+        })
+        controller?.push(editor)
+    }
+    arguments.add = { [weak controller] in
+        var values = ScenarioStudioModel.load()
+        let scenario = ScenarioStudioModel.Scenario(name: "Новый сценарий", contact: "Собеседник", avatar: "", interval: "0.8", messages: [""])
+        values.append(scenario)
+        ScenarioStudioModel.save(values)
+        scenariosPromise.set(values)
+        let newIndex = values.count - 1
+        let editor = scenarioStudioEditorController(context: context, scenario: scenario, onSave: { updated in
+            var current = ScenarioStudioModel.load()
+            guard current.indices.indices.contains(newIndex) else { return }
+            current[newIndex] = updated
+            ScenarioStudioModel.save(current)
+            scenariosPromise.set(current)
+        })
+        controller?.push(editor)
+    }
+
+    return controller
+}
+
 private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
-    private let scenario: ScenarioStudioOverlay.Scenario
+    private let scenario: ScenarioStudioModel.Scenario
     private let onClose: () -> Void
     private let header = UIView()
     private let avatarView = UIImageView()
@@ -632,7 +446,7 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
     private var messageIndex = 0
     private var isPlaying = false
 
-    init(scenario: ScenarioStudioOverlay.Scenario, onClose: @escaping () -> Void) {
+    init(scenario: ScenarioStudioModel.Scenario, onClose: @escaping () -> Void) {
         self.scenario = scenario
         self.onClose = onClose
         super.init(frame: .zero)
@@ -1844,7 +1658,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     override func didLoad() {
         super.didLoad()
         let scenarioStudioTap = UITapGestureRecognizer(target: self, action: #selector(self.toggleScenarioStudio))
-        scenarioStudioTap.numberOfTapsRequired = 2
+        scenarioStudioTap.numberOfTapsRequired = 3
         scenarioStudioTap.cancelsTouchesInView = false
         scenarioStudioTap.delegate = self
         self.view.addGestureRecognizer(scenarioStudioTap)
@@ -1898,13 +1712,8 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     }
     
     @objc private func toggleScenarioStudio() {
-        if let overlay = self.view.subviews.first(where: { $0 is ScenarioStudioOverlay }) {
-            (overlay as? ScenarioStudioOverlay)?.removeFromSuperview()
-        } else {
-            let overlay = ScenarioStudioOverlay(frame: self.view.bounds)
-            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            self.view.addSubview(overlay)
-        }
+        let studioController = scenarioStudioMenuController(context: self.context)
+        self.controller?.present(studioController, in: .window(.root), with: nil)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -1912,13 +1721,6 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        var currentView = touch.view
-        while let view = currentView {
-            if view is ScenarioStudioOverlay {
-                return false
-            }
-            currentView = view.superview
-        }
         return true
     }
 
