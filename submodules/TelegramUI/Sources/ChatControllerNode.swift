@@ -420,11 +420,13 @@ private final class ScenarioStudioOverlay: UIView {
         self.contentStack.addArrangedSubview(self.makeSectionTitle("Параметры"))
         let parameters = self.makeCard()
         let contact = self.makeField("Собеседник", value: self.scenarios[index].contact)
+        let username = self.makeField("@username", value: self.scenarios[index].username)
         let avatar = self.makeField("URL аватара", value: self.scenarios[index].avatar)
         let interval = self.makeField("Задержка, сек.", value: self.scenarios[index].interval)
         interval.keyboardType = .decimalPad
         self.nameField = self.makeField("Название сценария", value: self.scenarios[index].name)
         self.contactField = contact
+        self.usernameField = username
         self.avatarField = avatar
         self.intervalField = interval
         let premiumLabel = UILabel()
