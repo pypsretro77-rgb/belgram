@@ -81,9 +81,39 @@ private final class ScenarioStudioOverlay: UIView {
     private struct Scenario: Codable {
         var name: String
         var contact: String
+        var username: String
         var avatar: String
         var interval: String
+        var premium: Bool
+        var premiumBadge: String
         var messages: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case name, contact, username, avatar, interval, premium, premiumBadge, messages
+        }
+
+        init(name: String, contact: String, avatar: String, interval: String, messages: [String], username: String = "@username", premium: Bool = false, premiumBadge: String = "★") {
+            self.name = name
+            self.contact = contact
+            self.username = username
+            self.avatar = avatar
+            self.interval = interval
+            self.premium = premium
+            self.premiumBadge = premiumBadge
+            self.messages = messages
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Диалог"
+            self.contact = try c.decodeIfPresent(String.self, forKey: .contact) ?? "Собеседник"
+            self.username = try c.decodeIfPresent(String.self, forKey: .username) ?? "@username"
+            self.avatar = try c.decodeIfPresent(String.self, forKey: .avatar) ?? ""
+            self.interval = try c.decodeIfPresent(String.self, forKey: .interval) ?? "0.8"
+            self.premium = try c.decodeIfPresent(Bool.self, forKey: .premium) ?? false
+            self.premiumBadge = try c.decodeIfPresent(String.self, forKey: .premiumBadge) ?? "★"
+            self.messages = try c.decodeIfPresent([String].self, forKey: .messages) ?? []
+        }
     }
 
     private let header = UIView()
@@ -98,7 +128,10 @@ private final class ScenarioStudioOverlay: UIView {
     private var nameField = UITextField()
     private var contactField = UITextField()
     private var avatarField = UITextField()
+    private var usernameField = UITextField()
     private var intervalField = UITextField()
+    private var premiumSwitch = UISwitch()
+    private var premiumBadgeButton = UIButton(type: .system)
     private var detailTopBar: UIStackView?
     private var runButton: UIButton?
 
@@ -398,14 +431,18 @@ private final class ScenarioStudioOverlay: UIView {
         premiumLabel.text = "Premium"
         premiumLabel.textColor = .white
         premiumLabel.font = UIFont.systemFont(ofSize: 15.0)
-        let premiumSwitch = UISwitch()
-        premiumSwitch.isOn = UserDefaults.standard.bool(forKey: "BelgramScenarioStudio.Premium")
-        premiumSwitch.addTarget(self, action: #selector(premiumChanged(_:)), for: .valueChanged)
-        let parameterStack = UIStackView(arrangedSubviews: [contact, avatar, interval])
+        self.premiumSwitch = UISwitch()
+        self.premiumSwitch.isOn = self.scenarios[index].premium
+        self.premiumSwitch.addTarget(self, action: #selector(premiumChanged(_:)), for: .valueChanged)
+        self.premiumBadgeButton.setTitle(self.scenarios[index].premiumBadge, for: .normal)
+        self.premiumBadgeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18.0, weight: .semibold)
+        self.premiumBadgeButton.tintColor = UIColor(red: 0.35, green: 0.72, blue: 1.0, alpha: 1.0)
+        self.premiumBadgeButton.addTarget(self, action: #selector(choosePremiumBadge), for: .touchUpInside)
+        let parameterStack = UIStackView(arrangedSubviews: [contact, username, avatar, interval])
         parameterStack.axis = .vertical
         parameterStack.spacing = 11.0
         parameterStack.translatesAutoresizingMaskIntoConstraints = false
-        let premiumRow = UIStackView(arrangedSubviews: [premiumLabel, UIView(), premiumSwitch])
+        let premiumRow = UIStackView(arrangedSubviews: [premiumLabel, self.premiumBadgeButton, UIView(), self.premiumSwitch])
         premiumRow.axis = .horizontal
         premiumRow.alignment = .center
         premiumRow.translatesAutoresizingMaskIntoConstraints = false
@@ -420,7 +457,7 @@ private final class ScenarioStudioOverlay: UIView {
             premiumRow.trailingAnchor.constraint(equalTo: parameterStack.trailingAnchor),
             premiumRow.bottomAnchor.constraint(equalTo: parameters.bottomAnchor, constant: -12.0)
         ])
-        [contact, avatar, interval].forEach { $0.heightAnchor.constraint(equalToConstant: 25.0).isActive = true }
+        [contact, username, avatar, interval].forEach { $0.heightAnchor.constraint(equalToConstant: 30.0).isActive = true }
         self.contentStack.addArrangedSubview(parameters)
 
         self.contentStack.addArrangedSubview(self.makeSectionTitle("Сообщения по порядку"))
@@ -490,13 +527,36 @@ private final class ScenarioStudioOverlay: UIView {
     }
 
     @objc private func premiumChanged(_ sender: UISwitch) {
-        UserDefaults.standard.set(sender.isOn, forKey: "BelgramScenarioStudio.Premium")
+        guard let index = self.selectedIndex, self.scenarios.indices.contains(index) else { return }
+        self.scenarios[index].premium = sender.isOn
+        self.persistScenarios()
+    }
+
+    @objc private func choosePremiumBadge() {
+        guard let index = self.selectedIndex else { return }
+        let alert = UIAlertController(title: "Значок Premium", message: "Выбери отображение рядом с именем", preferredStyle: .actionSheet)
+        for badge in ["★", "✦", "⭐", "💎", "ᴘ"] {
+            alert.addAction(UIAlertAction(title: badge, style: .default) { [weak self] _ in
+                guard let self, self.scenarios.indices.contains(index) else { return }
+                self.scenarios[index].premiumBadge = badge
+                self.persistScenarios()
+                self.showEditor(index: index)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = self.premiumBadgeButton
+            popover.sourceRect = self.premiumBadgeButton.bounds
+        }
+        self.findViewController()?.present(alert, animated: true)
     }
 
     @objc private func saveScenario() {
         guard let index = self.selectedIndex else { return }
         self.scenarios[index].contact = self.contactField.text ?? "Собеседник"
         self.scenarios[index].avatar = self.avatarField.text ?? ""
+        self.scenarios[index].username = self.usernameField.text ?? "@username"
+        self.scenarios[index].premium = self.premiumSwitch.isOn
         self.scenarios[index].interval = self.intervalField.text ?? "0.8"
         self.scenarios[index].messages = self.messageEditors.map { $0.text }
         self.persistScenarios()
@@ -504,10 +564,28 @@ private final class ScenarioStudioOverlay: UIView {
     }
 
     @objc private func runScenario() {
-        self.saveScenario()
-        let alert = UIAlertController(title: "Сценарий сохранён", message: "Это локальный сценарий-предпросмотр. Он не отправляет сообщения и не передаёт подарки.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Понятно", style: .default))
-        self.findViewController()?.present(alert, animated: true)
+        guard let index = self.selectedIndex, self.scenarios.indices.contains(index) else { return }
+        self.scenarios[index].contact = self.contactField.text ?? "Собеседник"
+        self.scenarios[index].avatar = self.avatarField.text ?? ""
+        self.scenarios[index].username = self.usernameField.text ?? "@username"
+        self.scenarios[index].premium = self.premiumSwitch.isOn
+        self.scenarios[index].interval = self.intervalField.text ?? "0.8"
+        self.scenarios[index].messages = self.messageEditors.map { $0.text }
+        self.persistScenarios()
+
+        let chat = ScenarioChatPreview(scenario: self.scenarios[index]) { [weak self] in
+            guard let self else { return }
+            self.showEditor(index: index)
+        }
+        chat.translatesAutoresizingMaskIntoConstraints = false
+        self.addSubview(chat)
+        NSLayoutConstraint.activate([
+            chat.topAnchor.constraint(equalTo: self.topAnchor),
+            chat.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            chat.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            chat.bottomAnchor.constraint(equalTo: self.bottomAnchor)
+        ])
+        self.bringSubviewToFront(chat)
     }
 
     @objc private func backPressed() {
@@ -534,6 +612,225 @@ private final class ScenarioStudioOverlay: UIView {
             responder = current.next
         }
         return nil
+    }
+}
+
+private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
+    private let scenario: ScenarioStudioOverlay.Scenario
+    private let onClose: () -> Void
+    private let header = UIView()
+    private let avatarView = UIImageView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let scrollView = UIScrollView()
+    private let messagesStack = UIStackView()
+    private let composer = UIView()
+    private let input = UITextField()
+    private let sendButton = UIButton(type: .system)
+    private var messageIndex = 0
+    private var isPlaying = false
+
+    init(scenario: ScenarioStudioOverlay.Scenario, onClose: @escaping () -> Void) {
+        self.scenario = scenario
+        self.onClose = onClose
+        super.init(frame: .zero)
+        self.backgroundColor = UIColor(red: 0.91, green: 0.93, blue: 0.94, alpha: 1.0)
+        self.build()
+        self.loadAvatar()
+        self.playNextMessage()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func build() {
+        self.header.translatesAutoresizingMaskIntoConstraints = false
+        self.header.backgroundColor = UIColor(red: 0.25, green: 0.48, blue: 0.63, alpha: 1.0)
+        self.addSubview(self.header)
+
+        let back = UIButton(type: .system)
+        back.setTitle("‹", for: .normal)
+        back.titleLabel?.font = UIFont.systemFont(ofSize: 34.0, weight: .light)
+        back.tintColor = .white
+        back.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
+        back.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(back)
+
+        self.avatarView.backgroundColor = UIColor(white: 0.88, alpha: 1.0)
+        self.avatarView.layer.cornerRadius = 20.0
+        self.avatarView.clipsToBounds = true
+        self.avatarView.contentMode = .scaleAspectFill
+        self.avatarView.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(self.avatarView)
+
+        self.titleLabel.text = self.scenario.contact
+        self.titleLabel.textColor = .white
+        self.titleLabel.font = UIFont.systemFont(ofSize: 16.0, weight: .semibold)
+        self.titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(self.titleLabel)
+
+        let premium = self.scenario.premium ? "  " + self.scenario.premiumBadge : ""
+        self.subtitleLabel.text = self.scenario.username + premium
+        self.subtitleLabel.textColor = UIColor(white: 0.91, alpha: 1.0)
+        self.subtitleLabel.font = UIFont.systemFont(ofSize: 12.0)
+        self.subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(self.subtitleLabel)
+
+        self.scrollView.translatesAutoresizingMaskIntoConstraints = false
+        self.scrollView.alwaysBounceVertical = true
+        self.addSubview(self.scrollView)
+        self.messagesStack.axis = .vertical
+        self.messagesStack.spacing = 7.0
+        self.messagesStack.alignment = .fill
+        self.messagesStack.translatesAutoresizingMaskIntoConstraints = false
+        self.scrollView.addSubview(self.messagesStack)
+
+        self.composer.translatesAutoresizingMaskIntoConstraints = false
+        self.composer.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.97, alpha: 1.0)
+        self.addSubview(self.composer)
+        self.input.placeholder = "Сообщение"
+        self.input.borderStyle = .roundedRect
+        self.input.backgroundColor = .white
+        self.input.font = UIFont.systemFont(ofSize: 16.0)
+        self.input.delegate = self
+        self.input.returnKeyType = .send
+        self.input.translatesAutoresizingMaskIntoConstraints = false
+        self.composer.addSubview(self.input)
+        self.sendButton.setTitle("➤", for: .normal)
+        self.sendButton.titleLabel?.font = UIFont.systemFont(ofSize: 22.0, weight: .semibold)
+        self.sendButton.tintColor = UIColor(red: 0.25, green: 0.55, blue: 0.72, alpha: 1.0)
+        self.sendButton.addTarget(self, action: #selector(sendPressed), for: .touchUpInside)
+        self.sendButton.translatesAutoresizingMaskIntoConstraints = false
+        self.composer.addSubview(self.sendButton)
+
+        NSLayoutConstraint.activate([
+            self.header.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor),
+            self.header.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.header.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.header.heightAnchor.constraint(equalToConstant: 58.0),
+            back.leadingAnchor.constraint(equalTo: self.header.leadingAnchor, constant: 5.0),
+            back.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
+            back.widthAnchor.constraint(equalToConstant: 34.0),
+            self.avatarView.leadingAnchor.constraint(equalTo: back.trailingAnchor, constant: 5.0),
+            self.avatarView.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
+            self.avatarView.widthAnchor.constraint(equalToConstant: 40.0),
+            self.avatarView.heightAnchor.constraint(equalToConstant: 40.0),
+            self.titleLabel.leadingAnchor.constraint(equalTo: self.avatarView.trailingAnchor, constant: 10.0),
+            self.titleLabel.topAnchor.constraint(equalTo: self.header.topAnchor, constant: 10.0),
+            self.subtitleLabel.leadingAnchor.constraint(equalTo: self.titleLabel.leadingAnchor),
+            self.subtitleLabel.topAnchor.constraint(equalTo: self.titleLabel.bottomAnchor, constant: 2.0),
+            self.scrollView.topAnchor.constraint(equalTo: self.header.bottomAnchor),
+            self.scrollView.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.scrollView.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.scrollView.bottomAnchor.constraint(equalTo: self.composer.topAnchor),
+            self.messagesStack.topAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.topAnchor, constant: 12.0),
+            self.messagesStack.leadingAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.leadingAnchor, constant: 10.0),
+            self.messagesStack.trailingAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.trailingAnchor, constant: -10.0),
+            self.messagesStack.bottomAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.bottomAnchor, constant: -12.0),
+            self.composer.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.composer.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.composer.bottomAnchor.constraint(equalTo: self.safeAreaLayoutGuide.bottomAnchor),
+            self.composer.heightAnchor.constraint(equalToConstant: 58.0),
+            self.input.leadingAnchor.constraint(equalTo: self.composer.leadingAnchor, constant: 12.0),
+            self.input.centerYAnchor.constraint(equalTo: self.composer.centerYAnchor),
+            self.input.trailingAnchor.constraint(equalTo: self.sendButton.leadingAnchor, constant: -8.0),
+            self.input.heightAnchor.constraint(equalToConstant: 38.0),
+            self.sendButton.trailingAnchor.constraint(equalTo: self.composer.trailingAnchor, constant: -12.0),
+            self.sendButton.centerYAnchor.constraint(equalTo: self.composer.centerYAnchor),
+            self.sendButton.widthAnchor.constraint(equalToConstant: 34.0)
+        ])
+    }
+
+    private func loadAvatar() {
+        guard let url = URL(string: self.scenario.avatar), url.scheme == "https" || url.scheme == "http" else {
+            self.avatarView.image = UIImage(systemName: "person.crop.circle.fill")
+            self.avatarView.tintColor = .white
+            return
+        }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async { self?.avatarView.image = image }
+        }.resume()
+    }
+
+    private func playNextMessage() {
+        guard self.messageIndex < self.scenario.messages.count else { return }
+        let line = self.scenario.messages[self.messageIndex]
+        self.messageIndex += 1
+        let isOutgoing = line.hasPrefix("Я:") || line.hasPrefix("Я :") || line.hasPrefix("Me:")
+        let body = line.replacingOccurrences(of: "Я:", with: "").replacingOccurrences(of: "Я :", with: "").replacingOccurrences(of: "Me:", with: "")
+            .replacingOccurrences(of: "Собеседник:", with: "").replacingOccurrences(of: "Собеседник :", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let delay = max(0.15, Double(self.scenario.interval.replacingOccurrences(of: ",", with: ".")) ?? 0.8)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (self.messageIndex == 1 ? 0.15 : delay)) { [weak self] in
+            guard let self, self.window != nil else { return }
+            self.addMessage(body, outgoing: isOutgoing)
+            self.playNextMessage()
+        }
+    }
+
+    private func addMessage(_ text: String, outgoing: Bool) {
+        let isGift = text.contains("/soft ") && text.contains("t.me/nft/")
+        let bubble = UIView()
+        bubble.backgroundColor = isGift
+            ? UIColor(red: 0.88, green: 0.83, blue: 0.98, alpha: 1.0)
+            : (outgoing ? UIColor(red: 0.78, green: 0.94, blue: 0.77, alpha: 1.0) : .white)
+        bubble.layer.cornerRadius = 13.0
+        let label = UILabel()
+        label.text = isGift ? "🎁  Коллекционный подарок\n" + text.replacingOccurrences(of: "/soft ", with: "") : text
+        label.textColor = UIColor(red: 0.12, green: 0.15, blue: 0.17, alpha: 1.0)
+        label.font = UIFont.systemFont(ofSize: 16.0)
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        bubble.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 9.0),
+            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 11.0),
+            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -11.0),
+            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -9.0)
+        ])
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.alignment = .center
+        row.distribution = .fill
+        if outgoing {
+            row.addArrangedSubview(UIView())
+            row.addArrangedSubview(bubble)
+        } else {
+            row.addArrangedSubview(bubble)
+            row.addArrangedSubview(UIView())
+        }
+        bubble.widthAnchor.constraint(lessThanOrEqualTo: self.widthAnchor, multiplier: 0.78).isActive = true
+        self.messagesStack.addArrangedSubview(row)
+        self.viewScrollToBottom()
+    }
+
+    private func viewScrollToBottom() {
+        self.layoutIfNeeded()
+        let y = max(0.0, self.scrollView.contentSize.height - self.scrollView.bounds.height)
+        self.scrollView.setContentOffset(CGPoint(x: 0.0, y: y), animated: true)
+    }
+
+    @objc private func sendPressed() {
+        self.sendCurrentMessage()
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        self.sendCurrentMessage()
+        return true
+    }
+
+    private func sendCurrentMessage() {
+        let value = self.input.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !value.isEmpty else { return }
+        self.addMessage(value, outgoing: true)
+        self.input.text = ""
+    }
+
+    @objc private func backPressed() {
+        self.onClose()
+        self.removeFromSuperview()
     }
 }
 
