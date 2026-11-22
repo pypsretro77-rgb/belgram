@@ -78,7 +78,7 @@ import InstantPageUI
 import ChatRichTextEditorComposer
 
 private final class ScenarioStudioOverlay: UIView {
-    private struct Scenario: Codable {
+    fileprivate struct Scenario: Codable {
         var name: String
         var contact: String
         var username: String
@@ -137,7 +137,7 @@ private final class ScenarioStudioOverlay: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        self.backgroundColor = UIColor(red: 0.075, green: 0.075, blue: 0.085, alpha: 1.0)
+        self.backgroundColor = UIColor(red: 0.10, green: 0.15, blue: 0.19, alpha: 1.0)
         self.loadScenarios()
         self.buildShell()
         self.showScenarioList(animated: false)
@@ -150,7 +150,7 @@ private final class ScenarioStudioOverlay: UIView {
     private func buildShell() {
         self.header.translatesAutoresizingMaskIntoConstraints = false
         self.addSubview(self.header)
-        self.header.backgroundColor = UIColor(red: 0.075, green: 0.075, blue: 0.085, alpha: 1.0)
+        self.header.backgroundColor = UIColor(red: 0.10, green: 0.15, blue: 0.19, alpha: 1.0)
 
         self.closeButton.setTitle("×", for: .normal)
         self.closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 32.0, weight: .light)
@@ -340,7 +340,7 @@ private final class ScenarioStudioOverlay: UIView {
 
     private func makeCard() -> UIView {
         let view = UIView()
-        view.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
+        view.backgroundColor = UIColor(red: 0.14, green: 0.20, blue: 0.25, alpha: 1.0)
         view.layer.cornerRadius = 15.0
         return view
     }
