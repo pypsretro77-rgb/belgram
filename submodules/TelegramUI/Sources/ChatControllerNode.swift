@@ -370,7 +370,7 @@ private func scenarioStudioMenuController(context: AccountContext) -> ItemListCo
 
     let state = combineLatest(context.sharedContext.presentationData, scenariosPromise.get())
     |> deliverOnMainQueue
-    |> map { presentationData, scenarios -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, scenarios -> (ItemListControllerState, (ItemListNodeState, ScenarioStudioMenuArguments)) in
         let presentationData = presentationData.withUpdated(theme: presentationData.theme.withModalBlocksBackground())
         let itemPresentationData = ItemListPresentationData(presentationData)
         var entries: [ScenarioStudioMenuEntry] = [.information]
