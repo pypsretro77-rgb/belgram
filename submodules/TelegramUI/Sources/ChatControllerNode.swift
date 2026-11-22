@@ -327,7 +327,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
 
     let state = combineLatest(context.sharedContext.presentationData, scenarioPromise.get())
     |> deliverOnMainQueue
-    |> map { presentationData, scenario -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, scenario -> (ItemListControllerState, (ItemListNodeState, ScenarioStudioEditorArguments)) in
         let presentationData = presentationData.withUpdated(theme: presentationData.theme.withModalBlocksBackground())
         let itemPresentationData = ItemListPresentationData(presentationData)
         var entries: [ScenarioStudioEditorEntry] = [
