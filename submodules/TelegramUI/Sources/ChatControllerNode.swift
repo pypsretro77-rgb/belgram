@@ -233,7 +233,9 @@ private final class ScenarioStudioOverlay: UIView {
             card.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
             card.layer.cornerRadius = 15.0
             card.contentHorizontalAlignment = .left
-            card.contentEdgeInsets = UIEdgeInsets(top: 12.0, left: 14.0, bottom: 12.0, right: 14.0)
+            var cardConfiguration = UIButton.Configuration.plain()
+            cardConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 12.0, leading: 14.0, bottom: 12.0, trailing: 14.0)
+            card.configuration = cardConfiguration
             card.tag = index
             card.addTarget(self, action: #selector(scenarioPressed(_:)), for: .touchUpInside)
 
@@ -341,14 +343,18 @@ private final class ScenarioStudioOverlay: UIView {
         contactButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
         contactButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
         contactButton.layer.cornerRadius = 18.0
-        contactButton.contentEdgeInsets = UIEdgeInsets(top: 9.0, left: 13.0, bottom: 9.0, right: 13.0)
+        var contactConfiguration = UIButton.Configuration.plain()
+        contactConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 9.0, leading: 13.0, bottom: 9.0, trailing: 13.0)
+        contactButton.configuration = contactConfiguration
         let nameButton = UIButton(type: .system)
         nameButton.setTitle(self.scenarios[index].name, for: .normal)
         nameButton.setTitleColor(.white, for: .normal)
         nameButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
         nameButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
         nameButton.layer.cornerRadius = 18.0
-        nameButton.contentEdgeInsets = UIEdgeInsets(top: 9.0, left: 13.0, bottom: 9.0, right: 13.0)
+        var nameConfiguration = UIButton.Configuration.plain()
+        nameConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 9.0, leading: 13.0, bottom: 9.0, trailing: 13.0)
+        nameButton.configuration = nameConfiguration
         nameButton.addTarget(self, action: #selector(renameScenario), for: .touchUpInside)
         let spacer = UIView()
         let plus = UIButton(type: .system)
@@ -366,7 +372,9 @@ private final class ScenarioStudioOverlay: UIView {
         run.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
         run.backgroundColor = UIColor(red: 0.0, green: 0.72, blue: 0.82, alpha: 1.0)
         run.layer.cornerRadius = 18.0
-        run.contentEdgeInsets = UIEdgeInsets(top: 9.0, left: 14.0, bottom: 9.0, right: 14.0)
+        var runConfiguration = UIButton.Configuration.plain()
+        runConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 9.0, leading: 14.0, bottom: 9.0, trailing: 14.0)
+        run.configuration = runConfiguration
         run.addTarget(self, action: #selector(runScenario), for: .touchUpInside)
         self.runButton = run
         top.addArrangedSubview(contactButton)
