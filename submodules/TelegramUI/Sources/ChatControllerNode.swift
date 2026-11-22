@@ -254,7 +254,7 @@ private final class ScenarioStudioOverlay: UIView {
         self.clearContent()
 
         let note = UILabel()
-        note.text = "Локальный показ · сообщения не отправляются"
+        note.text = "Локальный чат · без отправки в Telegram"
         note.textColor = UIColor(white: 0.68, alpha: 1.0)
         note.font = UIFont.systemFont(ofSize: 11.0, weight: .medium)
         note.textAlignment = .center
