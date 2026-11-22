@@ -78,312 +78,456 @@ import InstantPageUI
 import ChatRichTextEditorComposer
 
 private final class ScenarioStudioOverlay: UIView {
-    private let titleField = UITextField()
-    private let usernameField = UITextField()
-    private let avatarField = UITextField()
-    private let intervalField = UITextField()
-    private let scriptView = UITextView()
-    private let previewView = UITextView()
-    private let typingField = UITextField()
-    private let avatarView = UIImageView()
-    private let premiumSwitch = UISwitch()
-    private var typingWorkItem: DispatchWorkItem?
+    private struct Scenario: Codable {
+        var name: String
+        var contact: String
+        var avatar: String
+        var interval: String
+        var messages: [String]
+    }
+
+    private let header = UIView()
+    private let titleLabel = UILabel()
+    private let closeButton = UIButton(type: .system)
+    private let addButton = UIButton(type: .system)
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+    private var scenarios: [Scenario] = []
+    private var selectedIndex: Int?
+    private var messageEditors: [UITextView] = []
+    private var nameField = UITextField()
+    private var contactField = UITextField()
+    private var avatarField = UITextField()
+    private var intervalField = UITextField()
+    private var detailTopBar: UIStackView?
+    private var runButton: UIButton?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        self.backgroundColor = UIColor.black.withAlphaComponent(0.58)
-
-        let panel = UIView()
-        panel.backgroundColor = UIColor.secondarySystemBackground
-        panel.layer.cornerRadius = 18.0
-        panel.clipsToBounds = true
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        self.addSubview(panel)
-
-        let heading = UILabel()
-        heading.text = "Студия сценариев"
-        heading.font = UIFont.boldSystemFont(ofSize: 21.0)
-        heading.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(heading)
-
-        let closeButton = UIButton(type: .system)
-        closeButton.setTitle("Закрыть", for: .normal)
-        closeButton.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(closeButton)
-
-        self.avatarView.backgroundColor = .tertiarySystemFill
-        self.avatarView.layer.cornerRadius = 24.0
-        self.avatarView.clipsToBounds = true
-        self.avatarView.contentMode = .scaleAspectFill
-        self.avatarView.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(self.avatarView)
-
-        self.configure(self.titleField, placeholder: "Имя собеседника")
-        self.configure(self.usernameField, placeholder: "@username")
-        self.configure(self.avatarField, placeholder: "URL аватара")
-        self.configure(self.intervalField, placeholder: "Интервал, сек. (например, 1)")
-        self.intervalField.keyboardType = .decimalPad
-        panel.addSubview(self.titleField)
-        panel.addSubview(self.usernameField)
-        panel.addSubview(self.avatarField)
-        panel.addSubview(self.intervalField)
-
-        let premiumLabel = UILabel()
-        premiumLabel.text = "Premium"
-        premiumLabel.font = UIFont.systemFont(ofSize: 15.0)
-        premiumLabel.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(premiumLabel)
-        self.premiumSwitch.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(self.premiumSwitch)
-
-        let scriptLabel = UILabel()
-        scriptLabel.text = "Сценарий (каждое сообщение с новой строки)"
-        scriptLabel.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
-        scriptLabel.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(scriptLabel)
-
-        self.scriptView.font = UIFont.systemFont(ofSize: 15.0)
-        self.scriptView.backgroundColor = .tertiarySystemBackground
-        self.scriptView.layer.cornerRadius = 10.0
-        self.scriptView.text = "Собеседник: Привет!\nЯ: Привет, как дела?\nСобеседник: Отлично!"
-        self.scriptView.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(self.scriptView)
-
-        let previewLabel = UILabel()
-        previewLabel.text = "Предпросмотр переписки"
-        previewLabel.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
-        previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(previewLabel)
-
-        self.previewView.isEditable = false
-        self.previewView.font = UIFont.systemFont(ofSize: 14.0)
-        self.previewView.backgroundColor = .tertiarySystemBackground
-        self.previewView.layer.cornerRadius = 10.0
-        self.previewView.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(self.previewView)
-
-        self.typingField.borderStyle = .roundedRect
-        self.typingField.placeholder = "Текст будет печататься здесь по буквам"
-        self.typingField.font = UIFont.systemFont(ofSize: 14.0)
-        self.typingField.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(self.typingField)
-
-        let runButton = UIButton(type: .system)
-        runButton.setTitle("Запустить предпросмотр", for: .normal)
-        runButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16.0)
-        runButton.backgroundColor = .systemBlue
-        runButton.tintColor = .white
-        runButton.layer.cornerRadius = 10.0
-        runButton.addTarget(self, action: #selector(runPressed), for: .touchUpInside)
-        runButton.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(runButton)
-
-        let saveButton = UIButton(type: .system)
-        saveButton.setTitle("Сохранить сценарий", for: .normal)
-        saveButton.addTarget(self, action: #selector(savePressed), for: .touchUpInside)
-        saveButton.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(saveButton)
-
-        NSLayoutConstraint.activate([
-            panel.centerXAnchor.constraint(equalTo: self.centerXAnchor),
-            panel.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-            panel.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -28.0),
-            panel.heightAnchor.constraint(lessThanOrEqualTo: self.heightAnchor, constant: -40.0),
-            panel.topAnchor.constraint(greaterThanOrEqualTo: self.safeAreaLayoutGuide.topAnchor, constant: 12.0),
-            panel.bottomAnchor.constraint(lessThanOrEqualTo: self.safeAreaLayoutGuide.bottomAnchor, constant: -12.0),
-
-            heading.topAnchor.constraint(equalTo: panel.topAnchor, constant: 16.0),
-            heading.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16.0),
-            closeButton.centerYAnchor.constraint(equalTo: heading.centerYAnchor),
-            closeButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -14.0),
-
-            avatarView.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 12.0),
-            avatarView.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16.0),
-            avatarView.widthAnchor.constraint(equalToConstant: 48.0),
-            avatarView.heightAnchor.constraint(equalToConstant: 48.0),
-
-            titleField.topAnchor.constraint(equalTo: avatarView.topAnchor),
-            titleField.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10.0),
-            titleField.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16.0),
-            titleField.heightAnchor.constraint(equalToConstant: 34.0),
-            usernameField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2.0),
-            usernameField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
-            usernameField.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
-            usernameField.heightAnchor.constraint(equalToConstant: 30.0),
-
-            avatarField.topAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 8.0),
-            avatarField.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16.0),
-            avatarField.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16.0),
-            avatarField.heightAnchor.constraint(equalToConstant: 34.0),
-            intervalField.topAnchor.constraint(equalTo: avatarField.bottomAnchor, constant: 5.0),
-            intervalField.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            intervalField.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-            intervalField.heightAnchor.constraint(equalToConstant: 34.0),
-
-            premiumLabel.topAnchor.constraint(equalTo: intervalField.bottomAnchor, constant: 8.0),
-            premiumLabel.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            premiumSwitch.centerYAnchor.constraint(equalTo: premiumLabel.centerYAnchor),
-            premiumSwitch.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-
-            scriptLabel.topAnchor.constraint(equalTo: premiumLabel.bottomAnchor, constant: 8.0),
-            scriptLabel.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            scriptLabel.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-            self.scriptView.topAnchor.constraint(equalTo: scriptLabel.bottomAnchor, constant: 5.0),
-            self.scriptView.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            self.scriptView.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-            self.scriptView.heightAnchor.constraint(equalToConstant: 105.0),
-
-            previewLabel.topAnchor.constraint(equalTo: self.scriptView.bottomAnchor, constant: 8.0),
-            previewLabel.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            self.previewView.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 5.0),
-            self.previewView.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            self.previewView.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-            self.previewView.heightAnchor.constraint(equalToConstant: 82.0),
-
-            self.typingField.topAnchor.constraint(equalTo: self.previewView.bottomAnchor, constant: 7.0),
-            self.typingField.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            self.typingField.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-            self.typingField.heightAnchor.constraint(equalToConstant: 36.0),
-
-            runButton.topAnchor.constraint(equalTo: self.typingField.bottomAnchor, constant: 9.0),
-            runButton.leadingAnchor.constraint(equalTo: avatarField.leadingAnchor),
-            runButton.trailingAnchor.constraint(equalTo: avatarField.trailingAnchor),
-            runButton.heightAnchor.constraint(equalToConstant: 40.0),
-            saveButton.topAnchor.constraint(equalTo: runButton.bottomAnchor, constant: 4.0),
-            saveButton.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
-            saveButton.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -8.0)
-        ])
-
-        if let saved = UserDefaults.standard.dictionary(forKey: "BelgramScenarioStudio") {
-            self.titleField.text = saved["name"] as? String
-            self.usernameField.text = saved["username"] as? String
-            self.avatarField.text = saved["avatar"] as? String
-            self.intervalField.text = saved["interval"] as? String
-            self.scriptView.text = saved["script"] as? String ?? self.scriptView.text
-            self.premiumSwitch.isOn = saved["premium"] as? Bool ?? false
-            self.loadAvatar()
-        } else {
-            self.titleField.text = "Собеседник"
-            self.intervalField.text = "1"
-        }
-        self.avatarField.addTarget(self, action: #selector(avatarChanged), for: .editingChanged)
+        self.backgroundColor = UIColor(red: 0.075, green: 0.075, blue: 0.085, alpha: 1.0)
+        self.loadScenarios()
+        self.buildShell()
+        self.showScenarioList(animated: false)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func configure(_ field: UITextField, placeholder: String) {
-        field.borderStyle = .roundedRect
-        field.placeholder = placeholder
-        field.font = UIFont.systemFont(ofSize: 14.0)
-        field.autocorrectionType = .no
-        field.translatesAutoresizingMaskIntoConstraints = false
+    private func buildShell() {
+        self.header.translatesAutoresizingMaskIntoConstraints = false
+        self.addSubview(self.header)
+        self.header.backgroundColor = UIColor(red: 0.075, green: 0.075, blue: 0.085, alpha: 1.0)
+
+        self.closeButton.setTitle("×", for: .normal)
+        self.closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 32.0, weight: .light)
+        self.closeButton.tintColor = .white
+        self.closeButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
+        self.closeButton.layer.cornerRadius = 18.0
+        self.closeButton.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        self.closeButton.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(self.closeButton)
+
+        self.titleLabel.text = "Студия сценариев"
+        self.titleLabel.textColor = .white
+        self.titleLabel.font = UIFont.systemFont(ofSize: 17.0, weight: .semibold)
+        self.titleLabel.textAlignment = .center
+        self.titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(self.titleLabel)
+
+        self.addButton.setTitle("+", for: .normal)
+        self.addButton.titleLabel?.font = UIFont.systemFont(ofSize: 30.0, weight: .regular)
+        self.addButton.tintColor = .white
+        self.addButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
+        self.addButton.layer.cornerRadius = 18.0
+        self.addButton.addTarget(self, action: #selector(addPressed), for: .touchUpInside)
+        self.addButton.translatesAutoresizingMaskIntoConstraints = false
+        self.header.addSubview(self.addButton)
+
+        self.scrollView.translatesAutoresizingMaskIntoConstraints = false
+        self.scrollView.alwaysBounceVertical = true
+        self.addSubview(self.scrollView)
+
+        self.contentStack.axis = .vertical
+        self.contentStack.spacing = 10.0
+        self.contentStack.alignment = .fill
+        self.contentStack.translatesAutoresizingMaskIntoConstraints = false
+        self.scrollView.addSubview(self.contentStack)
+
+        NSLayoutConstraint.activate([
+            self.header.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor),
+            self.header.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.header.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.header.heightAnchor.constraint(equalToConstant: 58.0),
+
+            self.closeButton.leadingAnchor.constraint(equalTo: self.header.leadingAnchor, constant: 12.0),
+            self.closeButton.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
+            self.closeButton.widthAnchor.constraint(equalToConstant: 36.0),
+            self.closeButton.heightAnchor.constraint(equalToConstant: 36.0),
+
+            self.titleLabel.centerXAnchor.constraint(equalTo: self.header.centerXAnchor),
+            self.titleLabel.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
+
+            self.addButton.trailingAnchor.constraint(equalTo: self.header.trailingAnchor, constant: -12.0),
+            self.addButton.centerYAnchor.constraint(equalTo: self.header.centerYAnchor),
+            self.addButton.widthAnchor.constraint(equalToConstant: 36.0),
+            self.addButton.heightAnchor.constraint(equalToConstant: 36.0),
+
+            self.scrollView.topAnchor.constraint(equalTo: self.header.bottomAnchor),
+            self.scrollView.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.scrollView.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.scrollView.bottomAnchor.constraint(equalTo: self.safeAreaLayoutGuide.bottomAnchor),
+
+            self.contentStack.topAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.topAnchor, constant: 12.0),
+            self.contentStack.leadingAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.leadingAnchor, constant: 10.0),
+            self.contentStack.trailingAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.trailingAnchor, constant: -10.0),
+            self.contentStack.bottomAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.bottomAnchor, constant: -18.0)
+        ])
     }
 
-    @objc private func avatarChanged() {
-        self.loadAvatar()
-    }
-
-    private func loadAvatar() {
-        guard let value = self.avatarField.text, let url = URL(string: value), url.scheme == "https" else {
-            self.avatarView.image = nil
-            return
+    private func loadScenarios() {
+        if let data = UserDefaults.standard.data(forKey: "BelgramScenarioStudio.List"),
+           let saved = try? JSONDecoder().decode([Scenario].self, from: data) {
+            self.scenarios = saved
         }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async { self?.avatarView.image = image }
-        }.resume()
+        if self.scenarios.isEmpty {
+            self.scenarios = [
+                Scenario(name: "Диалог", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Я: Привет, как дела?", "Собеседник: Отлично!", "Я: Рад это слышать"]),
+                Scenario(name: "Ку", contact: "Собеседник", avatar: "", interval: "1", messages: ["Собеседник: Ку", "Я: Привет!", "Собеседник: Как ты?"]),
+                Scenario(name: "Нфт", contact: "Собеседник", avatar: "", interval: "1", messages: ["Собеседник: Телеграм подарки", "Я: Давай статую", "Собеседник: Хочешь подарок кое что круче?"]),
+                Scenario(name: "Выбирай", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Собеседник: Выбирай но не ошибись с выбором"])
+            ]
+        }
+    }
+
+    private func persistScenarios() {
+        if let data = try? JSONEncoder().encode(self.scenarios) {
+            UserDefaults.standard.set(data, forKey: "BelgramScenarioStudio.List")
+        }
+    }
+
+    private func clearContent() {
+        self.contentStack.arrangedSubviews.forEach { view in
+            self.contentStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        self.messageEditors.removeAll()
+    }
+
+    private func showScenarioList(animated: Bool) {
+        self.selectedIndex = nil
+        self.titleLabel.text = "Студия сценариев"
+        self.addButton.isHidden = false
+        self.clearContent()
+
+        let note = UILabel()
+        note.text = "Локальный показ · сообщения не отправляются"
+        note.textColor = UIColor(white: 0.68, alpha: 1.0)
+        note.font = UIFont.systemFont(ofSize: 11.0, weight: .medium)
+        note.textAlignment = .center
+        self.contentStack.addArrangedSubview(note)
+
+        for index in self.scenarios.indices {
+            let scenario = self.scenarios[index]
+            let card = UIButton(type: .system)
+            card.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
+            card.layer.cornerRadius = 15.0
+            card.contentHorizontalAlignment = .left
+            card.contentEdgeInsets = UIEdgeInsets(top: 12.0, left: 14.0, bottom: 12.0, right: 14.0)
+            card.tag = index
+            card.addTarget(self, action: #selector(scenarioPressed(_:)), for: .touchUpInside)
+
+            let title = UILabel()
+            title.text = scenario.name
+            title.textColor = .white
+            title.font = UIFont.systemFont(ofSize: 15.0, weight: .medium)
+            let subtitle = UILabel()
+            subtitle.text = "\(scenario.messages.count) сообщений · \(scenario.contact)"
+            subtitle.textColor = UIColor(white: 0.62, alpha: 1.0)
+            subtitle.font = UIFont.systemFont(ofSize: 12.0)
+            let arrow = UILabel()
+            arrow.text = "›"
+            arrow.textColor = UIColor(white: 0.65, alpha: 1.0)
+            arrow.font = UIFont.systemFont(ofSize: 25.0, weight: .light)
+            arrow.translatesAutoresizingMaskIntoConstraints = false
+            title.translatesAutoresizingMaskIntoConstraints = false
+            subtitle.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(title)
+            card.addSubview(subtitle)
+            card.addSubview(arrow)
+            NSLayoutConstraint.activate([
+                title.topAnchor.constraint(equalTo: card.topAnchor, constant: 11.0),
+                title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14.0),
+                title.trailingAnchor.constraint(lessThanOrEqualTo: arrow.leadingAnchor, constant: -8.0),
+                subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3.0),
+                subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+                subtitle.trailingAnchor.constraint(equalTo: title.trailingAnchor),
+                subtitle.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -11.0),
+                arrow.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14.0),
+                arrow.centerYAnchor.constraint(equalTo: card.centerYAnchor)
+            ])
+            card.heightAnchor.constraint(greaterThanOrEqualToConstant: 62.0).isActive = true
+            self.contentStack.addArrangedSubview(card)
+        }
+
+        if animated {
+            self.contentStack.alpha = 0.0
+            UIView.animate(withDuration: 0.2) { self.contentStack.alpha = 1.0 }
+        }
+    }
+
+    @objc private func scenarioPressed(_ sender: UIButton) {
+        guard self.scenarios.indices.contains(sender.tag) else { return }
+        self.showEditor(index: sender.tag)
+    }
+
+    @objc private func addPressed() {
+        if let index = self.selectedIndex {
+            self.scenarios[index].messages.append("Собеседник: Новое сообщение")
+            self.persistScenarios()
+            self.showEditor(index: index)
+        } else {
+            let scenario = Scenario(name: "Новый сценарий", contact: "Собеседник", avatar: "", interval: "0.8", messages: ["Собеседник: Привет!"])
+            self.scenarios.append(scenario)
+            self.persistScenarios()
+            self.showEditor(index: self.scenarios.count - 1)
+        }
+    }
+
+    private func makeSectionTitle(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = UIColor(white: 0.68, alpha: 1.0)
+        label.font = UIFont.systemFont(ofSize: 13.0, weight: .semibold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }
+
+    private func makeCard() -> UIView {
+        let view = UIView()
+        view.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
+        view.layer.cornerRadius = 15.0
+        return view
+    }
+
+    private func makeField(_ placeholder: String, value: String) -> UITextField {
+        let field = UITextField()
+        field.text = value
+        field.placeholder = placeholder
+        field.textColor = .white
+        field.tintColor = .systemBlue
+        field.font = UIFont.systemFont(ofSize: 15.0)
+        field.autocorrectionType = .no
+        field.borderStyle = .none
+        field.backgroundColor = .clear
+        field.translatesAutoresizingMaskIntoConstraints = false
+        return field
+    }
+
+    private func showEditor(index: Int) {
+        guard self.scenarios.indices.contains(index) else { return }
+        self.selectedIndex = index
+        self.titleLabel.text = self.scenarios[index].name
+        self.addButton.isHidden = true
+        self.clearContent()
+
+        let top = UIStackView()
+        top.axis = .horizontal
+        top.spacing = 7.0
+        top.alignment = .center
+        let contactButton = UIButton(type: .system)
+        contactButton.setTitle("Контакт", for: .normal)
+        contactButton.setTitleColor(.white, for: .normal)
+        contactButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
+        contactButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
+        contactButton.layer.cornerRadius = 18.0
+        contactButton.contentEdgeInsets = UIEdgeInsets(top: 9.0, left: 13.0, bottom: 9.0, right: 13.0)
+        let nameButton = UIButton(type: .system)
+        nameButton.setTitle(self.scenarios[index].name, for: .normal)
+        nameButton.setTitleColor(.white, for: .normal)
+        nameButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
+        nameButton.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
+        nameButton.layer.cornerRadius = 18.0
+        nameButton.contentEdgeInsets = UIEdgeInsets(top: 9.0, left: 13.0, bottom: 9.0, right: 13.0)
+        nameButton.addTarget(self, action: #selector(renameScenario), for: .touchUpInside)
+        let spacer = UIView()
+        let plus = UIButton(type: .system)
+        plus.setTitle("+", for: .normal)
+        plus.titleLabel?.font = UIFont.systemFont(ofSize: 25.0, weight: .regular)
+        plus.tintColor = .white
+        plus.backgroundColor = UIColor(white: 0.20, alpha: 1.0)
+        plus.layer.cornerRadius = 18.0
+        plus.widthAnchor.constraint(equalToConstant: 36.0).isActive = true
+        plus.heightAnchor.constraint(equalToConstant: 36.0).isActive = true
+        plus.addTarget(self, action: #selector(addPressed), for: .touchUpInside)
+        let run = UIButton(type: .system)
+        run.setTitle("Запуск", for: .normal)
+        run.setTitleColor(.white, for: .normal)
+        run.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .semibold)
+        run.backgroundColor = UIColor(red: 0.0, green: 0.72, blue: 0.82, alpha: 1.0)
+        run.layer.cornerRadius = 18.0
+        run.contentEdgeInsets = UIEdgeInsets(top: 9.0, left: 14.0, bottom: 9.0, right: 14.0)
+        run.addTarget(self, action: #selector(runScenario), for: .touchUpInside)
+        self.runButton = run
+        top.addArrangedSubview(contactButton)
+        top.addArrangedSubview(nameButton)
+        top.addArrangedSubview(spacer)
+        top.addArrangedSubview(plus)
+        top.addArrangedSubview(run)
+        self.contentStack.addArrangedSubview(top)
+
+        self.contentStack.addArrangedSubview(self.makeSectionTitle("Параметры"))
+        let parameters = self.makeCard()
+        let contact = self.makeField("Собеседник", value: self.scenarios[index].contact)
+        let avatar = self.makeField("URL аватара", value: self.scenarios[index].avatar)
+        let interval = self.makeField("Задержка, сек.", value: self.scenarios[index].interval)
+        interval.keyboardType = .decimalPad
+        self.nameField = self.makeField("Название сценария", value: self.scenarios[index].name)
+        self.contactField = contact
+        self.avatarField = avatar
+        self.intervalField = interval
+        let premiumLabel = UILabel()
+        premiumLabel.text = "Premium"
+        premiumLabel.textColor = .white
+        premiumLabel.font = UIFont.systemFont(ofSize: 15.0)
+        let premiumSwitch = UISwitch()
+        premiumSwitch.isOn = UserDefaults.standard.bool(forKey: "BelgramScenarioStudio.Premium")
+        premiumSwitch.addTarget(self, action: #selector(premiumChanged(_:)), for: .valueChanged)
+        let parameterStack = UIStackView(arrangedSubviews: [contact, avatar, interval])
+        parameterStack.axis = .vertical
+        parameterStack.spacing = 11.0
+        parameterStack.translatesAutoresizingMaskIntoConstraints = false
+        let premiumRow = UIStackView(arrangedSubviews: [premiumLabel, UIView(), premiumSwitch])
+        premiumRow.axis = .horizontal
+        premiumRow.alignment = .center
+        premiumRow.translatesAutoresizingMaskIntoConstraints = false
+        parameters.addSubview(parameterStack)
+        parameters.addSubview(premiumRow)
+        NSLayoutConstraint.activate([
+            parameterStack.topAnchor.constraint(equalTo: parameters.topAnchor, constant: 13.0),
+            parameterStack.leadingAnchor.constraint(equalTo: parameters.leadingAnchor, constant: 13.0),
+            parameterStack.trailingAnchor.constraint(equalTo: parameters.trailingAnchor, constant: -13.0),
+            premiumRow.topAnchor.constraint(equalTo: parameterStack.bottomAnchor, constant: 12.0),
+            premiumRow.leadingAnchor.constraint(equalTo: parameterStack.leadingAnchor),
+            premiumRow.trailingAnchor.constraint(equalTo: parameterStack.trailingAnchor),
+            premiumRow.bottomAnchor.constraint(equalTo: parameters.bottomAnchor, constant: -12.0)
+        ])
+        [contact, avatar, interval].forEach { $0.heightAnchor.constraint(equalToConstant: 25.0).isActive = true }
+        self.contentStack.addArrangedSubview(parameters)
+
+        self.contentStack.addArrangedSubview(self.makeSectionTitle("Сообщения по порядку"))
+        for (messageIndex, message) in self.scenarios[index].messages.enumerated() {
+            let row = self.makeCard()
+            let editor = UITextView()
+            editor.text = message
+            editor.textColor = .white
+            editor.font = UIFont.systemFont(ofSize: 15.0)
+            editor.backgroundColor = .clear
+            editor.isScrollEnabled = false
+            editor.textContainerInset = UIEdgeInsets(top: 10.0, left: 9.0, bottom: 10.0, right: 9.0)
+            editor.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(editor)
+            let delayLabel = UILabel()
+            delayLabel.text = "Задержка перед сообщением: \(self.scenarios[index].interval) сек."
+            delayLabel.textColor = UIColor(white: 0.62, alpha: 1.0)
+            delayLabel.font = UIFont.systemFont(ofSize: 11.0)
+            delayLabel.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(delayLabel)
+            NSLayoutConstraint.activate([
+                editor.topAnchor.constraint(equalTo: row.topAnchor, constant: 3.0),
+                editor.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4.0),
+                editor.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4.0),
+                editor.heightAnchor.constraint(greaterThanOrEqualToConstant: 42.0),
+                delayLabel.topAnchor.constraint(equalTo: editor.bottomAnchor, constant: 0.0),
+                delayLabel.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 13.0),
+                delayLabel.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -13.0),
+                delayLabel.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -10.0)
+            ])
+            editor.tag = messageIndex
+            self.messageEditors.append(editor)
+            self.contentStack.addArrangedSubview(row)
+        }
+
+        let save = UIButton(type: .system)
+        save.setTitle("Сохранить сценарий", for: .normal)
+        save.setTitleColor(.white, for: .normal)
+        save.backgroundColor = UIColor(white: 0.22, alpha: 1.0)
+        save.layer.cornerRadius = 12.0
+        save.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
+        save.addTarget(self, action: #selector(saveScenario), for: .touchUpInside)
+        self.contentStack.addArrangedSubview(save)
+
+        let back = UIButton(type: .system)
+        back.setTitle("← Все сценарии", for: .normal)
+        back.setTitleColor(UIColor(white: 0.75, alpha: 1.0), for: .normal)
+        back.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
+        self.contentStack.addArrangedSubview(back)
+
+        self.contentStack.setNeedsLayout()
+        self.scrollView.setContentOffset(.zero, animated: false)
+    }
+
+    @objc private func renameScenario() {
+        guard let index = self.selectedIndex else { return }
+        let alert = UIAlertController(title: "Название сценария", message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.text = self.scenarios[index].name }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Сохранить", style: .default) { [weak self, weak alert] _ in
+            guard let self, let value = alert?.textFields?.first?.text, !value.isEmpty else { return }
+            self.scenarios[index].name = value
+            self.persistScenarios()
+            self.showEditor(index: index)
+        })
+        self.findViewController()?.present(alert, animated: true)
+    }
+
+    @objc private func premiumChanged(_ sender: UISwitch) {
+        UserDefaults.standard.set(sender.isOn, forKey: "BelgramScenarioStudio.Premium")
+    }
+
+    @objc private func saveScenario() {
+        guard let index = self.selectedIndex else { return }
+        self.scenarios[index].contact = self.contactField.text ?? "Собеседник"
+        self.scenarios[index].avatar = self.avatarField.text ?? ""
+        self.scenarios[index].interval = self.intervalField.text ?? "0.8"
+        self.scenarios[index].messages = self.messageEditors.map { $0.text }
+        self.persistScenarios()
+        self.showEditor(index: index)
+    }
+
+    @objc private func runScenario() {
+        self.saveScenario()
+        let alert = UIAlertController(title: "Сценарий сохранён", message: "Это локальный сценарий-предпросмотр. Он не отправляет сообщения и не передаёт подарки.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Понятно", style: .default))
+        self.findViewController()?.present(alert, animated: true)
+    }
+
+    @objc private func backPressed() {
+        self.persistScenarios()
+        self.showScenarioList(animated: true)
     }
 
     @objc private func closePressed() {
-        self.typingWorkItem?.cancel()
-        self.removeFromSuperview()
-    }
-
-    @objc private func savePressed() {
-        UserDefaults.standard.set([
-            "name": self.titleField.text ?? "",
-            "username": self.usernameField.text ?? "",
-            "avatar": self.avatarField.text ?? "",
-            "interval": self.intervalField.text ?? "1",
-            "script": self.scriptView.text ?? "",
-            "premium": self.premiumSwitch.isOn
-        ], forKey: "BelgramScenarioStudio")
         self.endEditing(true)
+        UIView.animate(withDuration: 0.18, animations: {
+            self.alpha = 0.0
+            self.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+        }, completion: { _ in
+            self.removeFromSuperview()
+        })
     }
 
-    @objc private func runPressed() {
-        self.typingWorkItem?.cancel()
-        self.previewView.text = ""
-        let delay = max(0.1, min(10.0, Double((self.intervalField.text ?? "1").replacingOccurrences(of: ",", with: ".")) ?? 1.0))
-        let lines = (self.scriptView.text ?? "").components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        self.play(lines: lines, index: 0, delay: delay)
-    }
-
-    private func play(lines: [String], index: Int, delay: Double) {
-        guard index < lines.count else { return }
-        let line = lines[index]
-        let parts = line.components(separatedBy: ":")
-        let isMe = (parts.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "я"
-        let message = parts.count > 1 ? parts.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces) : line
-        if isMe {
-            self.type(message) { [weak self] in
-                guard let self else { return }
-                self.previewView.text += "Я: \(message)\n"
-                self.play(lines: lines, index: index + 1, delay: delay)
+    private func findViewController() -> UIViewController? {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let controller = current as? UIViewController {
+                return controller
             }
-        } else {
-            let name = self.titleField.text?.isEmpty == false ? self.titleField.text! : "Собеседник"
-            self.previewView.text += "\(name): \(message)\n"
-            self.playNext(lines: lines, index: index, delay: delay)
+            responder = current.next
         }
-    }
-
-    private func playNext(lines: [String], index: Int, delay: Double) {
-        let item = DispatchWorkItem { [weak self] in
-            self?.play(lines: lines, index: index + 1, delay: delay)
-        }
-        self.typingWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
-    }
-
-    private func type(_ value: String, completion: @escaping () -> Void) {
-        self.typingField.text = ""
-        let characters = Array(value)
-        var position = 0
-        let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            if position < characters.count {
-                self.typingField.text = String(characters.prefix(position + 1))
-                position += 1
-                self.typeNext(characters, position: position, completion: completion)
-            } else {
-                completion()
-            }
-        }
-        self.typingWorkItem = item
-        DispatchQueue.main.async(execute: item)
-    }
-
-    private func typeNext(_ characters: [Character], position: Int, completion: @escaping () -> Void) {
-        guard position < characters.count else {
-            let item = DispatchWorkItem(block: completion)
-            self.typingWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
-            return
-        }
-        let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.typingField.text = String(characters.prefix(position + 1))
-            self.typeNext(characters, position: position + 1, completion: completion)
-        }
-        self.typingWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: item)
+        return nil
     }
 }
-
 
 final class VideoNavigationControllerDropContentItem: NavigationControllerDropContentItem {
     let itemNode: OverlayMediaItemNode
