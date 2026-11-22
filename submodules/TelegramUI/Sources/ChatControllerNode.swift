@@ -328,6 +328,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
     let state = combineLatest(context.sharedContext.presentationData, scenarioPromise.get())
     |> deliverOnMainQueue
     |> map { presentationData, scenario -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let presentationData = presentationData.withUpdated(theme: presentationData.theme.withModalBlocksBackground())
         let itemPresentationData = ItemListPresentationData(presentationData)
         var entries: [ScenarioStudioEditorEntry] = [
             .parametersHeader,
@@ -370,6 +371,7 @@ private func scenarioStudioMenuController(context: AccountContext) -> ItemListCo
     let state = combineLatest(context.sharedContext.presentationData, scenariosPromise.get())
     |> deliverOnMainQueue
     |> map { presentationData, scenarios -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let presentationData = presentationData.withUpdated(theme: presentationData.theme.withModalBlocksBackground())
         let itemPresentationData = ItemListPresentationData(presentationData)
         var entries: [ScenarioStudioMenuEntry] = [.information]
         for (index, scenario) in scenarios.enumerated() {
