@@ -351,6 +351,10 @@ private final class ScenarioStudioItemListController: ItemListController, UIGest
         return true
     }
 
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        return touch.location(in: self.view).y < 76.0
+    }
+
     override func preferredContentSizeForLayout(_ layout: ContainerViewLayout) -> CGSize? {
         let width = min(layout.size.width - 24.0, 520.0)
         let height = min(layout.size.height - 100.0, 520.0)
@@ -414,6 +418,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
     arguments.addMessage = {
         currentScenario.messages.append("")
         scenarioPromise.set(currentScenario)
+        onSave(currentScenario)
     }
 
     let state = combineLatest(context.sharedContext.presentationData, scenarioPromise.get())
