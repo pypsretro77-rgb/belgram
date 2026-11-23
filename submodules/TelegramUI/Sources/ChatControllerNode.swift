@@ -754,6 +754,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     private var chatLocationContextHolder: Atomic<ChatLocationContextHolder?>
     let controllerInteraction: ChatControllerInteraction
     private weak var controller: ChatControllerImpl?
+    private weak var scenarioStudioController: ItemListController?
     
     let navigationBar: NavigationBar?
     let statusBar: StatusBar?
@@ -1659,7 +1660,11 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
         scenarioStudioTap.numberOfTapsRequired = 3
         scenarioStudioTap.cancelsTouchesInView = false
         scenarioStudioTap.delegate = self
-        self.view.addGestureRecognizer(scenarioStudioTap)
+        if let controller = self.controller {
+            controller.view.addGestureRecognizer(scenarioStudioTap)
+        } else {
+            self.view.addGestureRecognizer(scenarioStudioTap)
+        }
         
         
         let recognizer = WindowPanRecognizer(target: nil, action: nil)
@@ -1710,8 +1715,12 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     }
     
     @objc private func toggleScenarioStudio() {
+        guard let controller = self.controller, self.scenarioStudioController == nil else {
+            return
+        }
         let studioController = scenarioStudioMenuController(context: self.context)
-        self.controller?.present(studioController, in: .window(.root), with: nil)
+        self.scenarioStudioController = studioController
+        controller.present(studioController, in: .window(.root), with: nil)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
