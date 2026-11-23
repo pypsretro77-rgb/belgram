@@ -91,10 +91,16 @@ private final class ScenarioStudioOverlay: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        self.backgroundColor = UIColor.black.withAlphaComponent(0.58)
+        self.backgroundColor = .clear
 
         let panel = UIView()
-        panel.backgroundColor = UIColor.secondarySystemBackground
+        panel.backgroundColor = UIColor(white: 0.07, alpha: 0.98)
+        panel.layer.borderWidth = 1.0
+        panel.layer.borderColor = UIColor.white.withAlphaComponent(0.12).cgColor
+        panel.layer.shadowColor = UIColor.black.cgColor
+        panel.layer.shadowOpacity = 0.28
+        panel.layer.shadowRadius = 18.0
+        panel.layer.shadowOffset = CGSize(width: 0.0, height: 8.0)
         panel.layer.cornerRadius = 18.0
         panel.clipsToBounds = true
         panel.translatesAutoresizingMaskIntoConstraints = false
@@ -102,17 +108,19 @@ private final class ScenarioStudioOverlay: UIView {
 
         let heading = UILabel()
         heading.text = "Студия сценариев"
-        heading.font = UIFont.boldSystemFont(ofSize: 21.0)
+        heading.font = UIFont.boldSystemFont(ofSize: 18.0)
+        heading.textColor = .white
         heading.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(heading)
 
         let closeButton = UIButton(type: .system)
-        closeButton.setTitle("Закрыть", for: .normal)
+        closeButton.setTitle("Скрыть", for: .normal)
+        closeButton.tintColor = UIColor.white.withAlphaComponent(0.8)
         closeButton.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(closeButton)
 
-        self.avatarView.backgroundColor = .tertiarySystemFill
+        self.avatarView.backgroundColor = UIColor(white: 0.18, alpha: 1.0)
         self.avatarView.layer.cornerRadius = 24.0
         self.avatarView.clipsToBounds = true
         self.avatarView.contentMode = .scaleAspectFill
@@ -132,6 +140,7 @@ private final class ScenarioStudioOverlay: UIView {
         let premiumLabel = UILabel()
         premiumLabel.text = "Premium"
         premiumLabel.font = UIFont.systemFont(ofSize: 15.0)
+        premiumLabel.textColor = .white
         premiumLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(premiumLabel)
         self.premiumSwitch.translatesAutoresizingMaskIntoConstraints = false
@@ -140,11 +149,13 @@ private final class ScenarioStudioOverlay: UIView {
         let scriptLabel = UILabel()
         scriptLabel.text = "Сценарий (каждое сообщение с новой строки)"
         scriptLabel.font = UIFont.semiboldSystemFont(ofSize: 14.0)
+        scriptLabel.textColor = .white
         scriptLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(scriptLabel)
 
         self.scriptView.font = UIFont.systemFont(ofSize: 15.0)
-        self.scriptView.backgroundColor = .tertiarySystemBackground
+        self.scriptView.backgroundColor = UIColor(white: 0.13, alpha: 1.0)
+        self.scriptView.textColor = .white
         self.scriptView.layer.cornerRadius = 10.0
         self.scriptView.text = "Собеседник: Привет!\nЯ: Привет, как дела?\nСобеседник: Отлично!"
         self.scriptView.translatesAutoresizingMaskIntoConstraints = false
@@ -153,17 +164,21 @@ private final class ScenarioStudioOverlay: UIView {
         let previewLabel = UILabel()
         previewLabel.text = "Предпросмотр переписки"
         previewLabel.font = UIFont.semiboldSystemFont(ofSize: 14.0)
+        previewLabel.textColor = .white
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(previewLabel)
 
         self.previewView.isEditable = false
         self.previewView.font = UIFont.systemFont(ofSize: 14.0)
-        self.previewView.backgroundColor = .tertiarySystemBackground
+        self.previewView.backgroundColor = UIColor(white: 0.13, alpha: 1.0)
+        self.previewView.textColor = .white
         self.previewView.layer.cornerRadius = 10.0
         self.previewView.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(self.previewView)
 
         self.typingField.borderStyle = .roundedRect
+        self.typingField.backgroundColor = UIColor(white: 0.13, alpha: 1.0)
+        self.typingField.textColor = .white
         self.typingField.placeholder = "Текст будет печататься здесь по буквам"
         self.typingField.font = UIFont.systemFont(ofSize: 14.0)
         self.typingField.translatesAutoresizingMaskIntoConstraints = false
@@ -188,7 +203,7 @@ private final class ScenarioStudioOverlay: UIView {
         NSLayoutConstraint.activate([
             panel.centerXAnchor.constraint(equalTo: self.centerXAnchor),
             panel.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-            panel.widthAnchor.constraint(equalTo: self.widthAnchor, constant: -28.0),
+            panel.widthAnchor.constraint(equalToConstant: 340.0),
             panel.heightAnchor.constraint(lessThanOrEqualTo: self.heightAnchor, constant: -40.0),
             panel.topAnchor.constraint(greaterThanOrEqualTo: self.safeAreaLayoutGuide.topAnchor, constant: 12.0),
             panel.bottomAnchor.constraint(lessThanOrEqualTo: self.safeAreaLayoutGuide.bottomAnchor, constant: -12.0),
@@ -276,6 +291,8 @@ private final class ScenarioStudioOverlay: UIView {
 
     private func configure(_ field: UITextField, placeholder: String) {
         field.borderStyle = .roundedRect
+        field.backgroundColor = UIColor(white: 0.13, alpha: 1.0)
+        field.textColor = .white
         field.placeholder = placeholder
         field.font = UIFont.systemFont(ofSize: 14.0)
         field.autocorrectionType = .no
@@ -1393,7 +1410,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
         super.didLoad()
         
         let scenarioStudioTap = UITapGestureRecognizer(target: self, action: #selector(self.toggleScenarioStudio))
-        scenarioStudioTap.numberOfTapsRequired = 2
+        scenarioStudioTap.numberOfTapsRequired = 3
         scenarioStudioTap.cancelsTouchesInView = false
         scenarioStudioTap.delegate = self
         self.view.addGestureRecognizer(scenarioStudioTap)
