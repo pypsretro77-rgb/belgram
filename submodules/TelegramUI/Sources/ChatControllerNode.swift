@@ -305,6 +305,14 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
     }
 }
 
+private final class ScenarioStudioItemListController: ItemListController {
+    override func preferredContentSizeForLayout(_ layout: ContainerViewLayout) -> CGSize? {
+        let width = min(layout.size.width - 24.0, 520.0)
+        let height = min(layout.size.height - 100.0, 520.0)
+        return CGSize(width: max(280.0, width), height: max(320.0, height))
+    }
+}
+
 private func scenarioStudioEditorController(context: AccountContext, scenario: ScenarioStudioModel.Scenario, onSave: @escaping (ScenarioStudioModel.Scenario) -> Void) -> ItemListController {
     var currentScenario = scenario
     let scenarioPromise = ValuePromise<ScenarioStudioModel.Scenario>(scenario, ignoreRepeated: true)
@@ -357,7 +365,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
         return (controllerState, (listState, arguments))
     }
 
-    let controller = ItemListController(context: context, state: state)
+    let controller = ScenarioStudioItemListController(context: context, state: state)
     editorController = controller
     controller.navigationPresentation = .modal
     return controller
@@ -391,7 +399,7 @@ private func scenarioStudioMenuController(context: AccountContext) -> ItemListCo
         return (controllerState, (listState, arguments))
     }
 
-    let controller = ItemListController(context: context, state: state)
+    let controller = ScenarioStudioItemListController(context: context, state: state)
     controller.navigationPresentation = .modal
 
     arguments.close = { [weak controller] in
