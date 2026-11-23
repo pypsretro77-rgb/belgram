@@ -1660,8 +1660,17 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
         scenarioStudioTap.numberOfTapsRequired = 3
         scenarioStudioTap.cancelsTouchesInView = false
         scenarioStudioTap.delegate = self
+        // Listen on both the chat controller's root view and the chat node.
+        // The chat content is composed from nested views, so either surface may
+        // receive the user's taps depending on the current layout.
         if let controller = self.controller {
             controller.view.addGestureRecognizer(scenarioStudioTap)
+            
+            let nodeTap = UITapGestureRecognizer(target: self, action: #selector(self.toggleScenarioStudio))
+            nodeTap.numberOfTapsRequired = 3
+            nodeTap.cancelsTouchesInView = false
+            nodeTap.delegate = self
+            self.view.addGestureRecognizer(nodeTap)
         } else {
             self.view.addGestureRecognizer(scenarioStudioTap)
         }
