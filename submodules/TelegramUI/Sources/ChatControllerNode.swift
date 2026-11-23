@@ -366,7 +366,6 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
 private func scenarioStudioMenuController(context: AccountContext) -> ItemListController {
     let scenariosPromise = ValuePromise<[ScenarioStudioModel.Scenario]>(ScenarioStudioModel.load(), ignoreRepeated: true)
     let arguments = ScenarioStudioMenuArguments()
-    var menuController: ItemListController?
 
     let state = combineLatest(context.sharedContext.presentationData, scenariosPromise.get())
     |> deliverOnMainQueue
@@ -393,7 +392,6 @@ private func scenarioStudioMenuController(context: AccountContext) -> ItemListCo
     }
 
     let controller = ItemListController(context: context, state: state)
-    menuController = controller
     controller.navigationPresentation = .modal
 
     arguments.close = { [weak controller] in
