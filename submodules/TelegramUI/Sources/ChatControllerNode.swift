@@ -1808,7 +1808,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
         }
         let studioController = scenarioStudioMenuController(context: self.context)
         self.scenarioStudioController = studioController
-        controller.present(studioController, in: .window(.root), with: nil)
+        controller.present(studioController, in: .window(.root), with: ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
