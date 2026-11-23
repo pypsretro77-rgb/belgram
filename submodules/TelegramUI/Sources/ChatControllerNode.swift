@@ -88,6 +88,7 @@ private final class ScenarioStudioOverlay: UIView {
     private let avatarView = UIImageView()
     private let premiumSwitch = UISwitch()
     private var typingWorkItem: DispatchWorkItem?
+    private weak var panelView: UIView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -105,6 +106,7 @@ private final class ScenarioStudioOverlay: UIView {
         panel.clipsToBounds = true
         panel.translatesAutoresizingMaskIntoConstraints = false
         self.addSubview(panel)
+        self.panelView = panel
 
         let heading = UILabel()
         heading.text = "Студия сценариев"
@@ -283,6 +285,11 @@ private final class ScenarioStudioOverlay: UIView {
             self.intervalField.text = "1"
         }
         self.avatarField.addTarget(self, action: #selector(avatarChanged), for: .editingChanged)
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard let panel = self.panelView else { return false }
+        return panel.frame.contains(point)
     }
 
     required init?(coder: NSCoder) {
