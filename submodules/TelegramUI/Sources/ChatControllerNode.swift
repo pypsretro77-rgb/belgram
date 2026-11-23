@@ -305,7 +305,42 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
     }
 }
 
-private final class ScenarioStudioItemListController: ItemListController {
+private final class ScenarioStudioItemListController: ItemListController, UIGestureRecognizerDelegate {
+    private var dismissPanGesture: UIPanGestureRecognizer?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        self.view.backgroundColor = .black
+        self.view.layer.cornerRadius = 18.0
+        self.view.clipsToBounds = true
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(self.handleDismissPan(_:)))
+        pan.delegate = self
+        pan.cancelsTouchesInView = false
+        self.view.addGestureRecognizer(pan)
+        self.dismissPanGesture = pan
+    }
+
+    @objc private func handleDismissPan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: self.view)
+        let velocity = gesture.velocity(in: self.view)
+        if gesture.state == .changed, translation.y > 0.0 {
+            self.view.transform = CGAffineTransform(translationX: 0.0, y: min(translation.y, 180.0))
+        } else if gesture.state == .ended || gesture.state == .cancelled {
+            if translation.y > 110.0 || velocity.y > 900.0 {
+                self.dismiss()
+            } else {
+                UIView.animate(withDuration: 0.22, delay: 0.0, options: [.curveEaseOut, .beginFromCurrentState], animations: {
+                    self.view.transform = .identity
+                })
+            }
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
+    }
+
     override func preferredContentSizeForLayout(_ layout: ContainerViewLayout) -> CGSize? {
         let width = min(layout.size.width - 24.0, 520.0)
         let height = min(layout.size.height - 100.0, 520.0)
