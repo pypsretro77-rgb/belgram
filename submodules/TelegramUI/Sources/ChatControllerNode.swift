@@ -1656,17 +1656,6 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     
     override func didLoad() {
         super.didLoad()
-        let scenarioStudioTap = UITapGestureRecognizer(target: self, action: #selector(self.toggleScenarioStudio))
-        scenarioStudioTap.numberOfTapsRequired = 3
-        scenarioStudioTap.cancelsTouchesInView = false
-        scenarioStudioTap.delegate = self
-        if let controller = self.controller {
-            controller.view.addGestureRecognizer(scenarioStudioTap)
-        } else {
-            self.view.addGestureRecognizer(scenarioStudioTap)
-        }
-        
-        
         let recognizer = WindowPanRecognizer(target: nil, action: nil)
         recognizer.cancelsTouchesInView = false
         recognizer.delaysTouchesBegan = false
