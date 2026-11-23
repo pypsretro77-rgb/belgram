@@ -228,9 +228,16 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
         case .parameters: return 0
         case .messages: return 1
         case .parametersHeader: return 2
-        case let .field(_, _, _, _, id): return id
-        case .premium: return 5
-        case .messagesHeader: return 6
+        case let .field(field, _, _, _, _):
+            switch field {
+            case .name: return 10
+            case .contact: return 11
+            case .username: return 12
+            case .avatar: return 13
+            case .interval: return 14
+            }
+        case .premium: return 15
+        case .messagesHeader: return 20
         case let .message(index, _): return 100 + Int32(index)
         case .save: return 10000
         }
