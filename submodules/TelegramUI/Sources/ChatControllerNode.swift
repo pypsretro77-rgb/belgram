@@ -763,6 +763,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
     let controllerInteraction: ChatControllerInteraction
     private weak var controller: ChatControllerImpl?
     private weak var scenarioStudioController: ItemListController?
+    private var scenarioStudioTapGesture: UITapGestureRecognizer?
     
     let navigationBar: NavigationBar?
     let statusBar: StatusBar?
@@ -6430,6 +6431,16 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate, UIGestureRecogniz
             strongSelf.updateIsEmpty(emptyType, wasLoading: wasLoading, animated: animated)
         }
         
+        if self.scenarioStudioTapGesture == nil {
+            let scenarioStudioTapGesture = UITapGestureRecognizer(target: self, action: #selector(self.toggleScenarioStudio))
+            scenarioStudioTapGesture.numberOfTapsRequired = 3
+            scenarioStudioTapGesture.numberOfTouchesRequired = 1
+            scenarioStudioTapGesture.cancelsTouchesInView = false
+            scenarioStudioTapGesture.delegate = self
+            self.view.addGestureRecognizer(scenarioStudioTapGesture)
+            self.scenarioStudioTapGesture = scenarioStudioTapGesture
+        }
+
         self.historyNode.addContentGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.tapGesture(_:))))
         
         self.displayVideoUnmuteTipDisposable?.dispose()
