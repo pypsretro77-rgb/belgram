@@ -307,7 +307,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
 
 private func scenarioStudioEditorController(context: AccountContext, scenario: ScenarioStudioModel.Scenario, onSave: @escaping (ScenarioStudioModel.Scenario) -> Void) -> ItemListController {
     var currentScenario = scenario
-    let scenarioPromise = ValuePromise<ScenarioStudioModel.Scenario>(scenario, ignoreRepeated: { (lhs: ScenarioStudioModel.Scenario, rhs: ScenarioStudioModel.Scenario) -> Bool in lhs == rhs })
+    let scenarioPromise = ValuePromise<ScenarioStudioModel.Scenario>(scenario, ignoreRepeated: true)
     let arguments = ScenarioStudioEditorArguments()
     var editorController: ItemListController?
 
@@ -364,7 +364,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
 }
 
 private func scenarioStudioMenuController(context: AccountContext) -> ItemListController {
-    let scenariosPromise = ValuePromise<[ScenarioStudioModel.Scenario]>(ScenarioStudioModel.load(), ignoreRepeated: { (lhs: [ScenarioStudioModel.Scenario], rhs: [ScenarioStudioModel.Scenario]) -> Bool in lhs == rhs })
+    let scenariosPromise = ValuePromise<[ScenarioStudioModel.Scenario]>(ScenarioStudioModel.load(), ignoreRepeated: true)
     let arguments = ScenarioStudioMenuArguments()
     var menuController: ItemListController?
 
