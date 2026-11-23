@@ -190,6 +190,8 @@ private final class ScenarioStudioEditorArguments {
     var update: (ScenarioStudioModel.Scenario) -> Void = { _ in }
     var save: () -> Void = {}
     var addMessage: () -> Void = {}
+    var openParameters: () -> Void = {}
+    var openMessages: () -> Void = {}
 }
 
 private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
@@ -201,6 +203,8 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
         case interval
     }
 
+    case parameters
+    case messages
     case parametersHeader
     case field(Field, title: String, value: String, placeholder: String, id: Int32)
     case premium
@@ -210,7 +214,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .parametersHeader, .field, .premium:
+        case .parameters, .messages, .parametersHeader, .field, .premium:
             return 0
         case .messagesHeader, .message:
             return 1
@@ -221,7 +225,9 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
 
     var stableId: Int32 {
         switch self {
-        case .parametersHeader: return 0
+        case .parameters: return 0
+        case .messages: return 1
+        case .parametersHeader: return 2
         case let .field(_, _, _, _, id): return id
         case .premium: return 5
         case .messagesHeader: return 6
@@ -237,6 +243,10 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
         let arguments = arguments as! ScenarioStudioEditorArguments
         switch self {
+        case .parameters:
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Параметры", label: "Имя собеседника · аватар · задержка", sectionId: self.section, style: .blocks, action: { arguments.openParameters() })
+        case .messages:
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Сообщения", label: "Последовательность сообщений", sectionId: self.section, style: .blocks, action: { arguments.openMessages() })
         case .parametersHeader:
             return ItemListSectionHeaderItem(presentationData: presentationData, text: "Параметры", sectionId: self.section)
         case let .field(field, title, value, placeholder, _):
@@ -348,6 +358,43 @@ private final class ScenarioStudioItemListController: ItemListController, UIGest
     }
 }
 
+private func scenarioStudioSubpageController(context: AccountContext, scenarioPromise: ValuePromise<ScenarioStudioModel.Scenario>, arguments: ScenarioStudioEditorArguments, title: String, parameters: Bool) -> ItemListController {
+    let state = combineLatest(context.sharedContext.presentationData, scenarioPromise.get())
+    |> deliverOnMainQueue
+    |> map { presentationData, scenario -> (ItemListControllerState, (ItemListNodeState, ScenarioStudioEditorArguments)) in
+        let presentationData = presentationData.withUpdated(theme: presentationData.theme.withModalBlocksBackground())
+        let itemPresentationData = ItemListPresentationData(presentationData)
+        var entries: [ScenarioStudioEditorEntry] = []
+        if parameters {
+            entries = [
+                .parametersHeader,
+                .field(.contact, title: "Имя собеседника", value: scenario.contact, placeholder: "Имя", id: 2),
+                .field(.avatar, title: "Аватар", value: scenario.avatar, placeholder: "URL аватара", id: 4),
+                .field(.interval, title: "Задержка, сек.", value: scenario.interval, placeholder: "0.8", id: 5),
+                .premium
+            ]
+        } else {
+            entries = [.messagesHeader]
+            for (index, message) in scenario.messages.enumerated() {
+                entries.append(.message(index: index, value: message))
+            }
+        }
+        let controllerState = ItemListControllerState(
+            presentationData: itemPresentationData,
+            title: .text(title),
+            leftNavigationButton: nil,
+            rightNavigationButton: nil,
+            secondaryRightNavigationButton: nil,
+            backNavigationButton: ItemListBackButton(title: "Назад")
+        )
+        let listState = ItemListNodeState(presentationData: itemPresentationData, entries: entries, style: .blocks, animateChanges: true)
+        return (controllerState, (listState, arguments))
+    }
+    let controller = ScenarioStudioItemListController(context: context, state: state)
+    controller.navigationPresentation = .modal
+    return controller
+}
+
 private func scenarioStudioEditorController(context: AccountContext, scenario: ScenarioStudioModel.Scenario, onSave: @escaping (ScenarioStudioModel.Scenario) -> Void) -> ItemListController {
     var currentScenario = scenario
     let scenarioPromise = ValuePromise<ScenarioStudioModel.Scenario>(scenario, ignoreRepeated: true)
@@ -358,6 +405,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
     arguments.update = { updated in
         currentScenario = updated
         scenarioPromise.set(updated)
+        onSave(updated)
     }
     arguments.save = {
         onSave(currentScenario)
@@ -373,20 +421,7 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
     |> map { presentationData, scenario -> (ItemListControllerState, (ItemListNodeState, ScenarioStudioEditorArguments)) in
         let presentationData = presentationData.withUpdated(theme: presentationData.theme.withModalBlocksBackground())
         let itemPresentationData = ItemListPresentationData(presentationData)
-        var entries: [ScenarioStudioEditorEntry] = [
-            .parametersHeader,
-            .field(.name, title: "Название", value: scenario.name, placeholder: "Название сценария", id: 1),
-            .field(.contact, title: "Собеседник", value: scenario.contact, placeholder: "Имя контакта", id: 2),
-            .field(.username, title: "Username", value: scenario.username, placeholder: "@username", id: 3),
-            .field(.avatar, title: "Аватар", value: scenario.avatar, placeholder: "URL аватара", id: 4),
-            .field(.interval, title: "Задержка, сек.", value: scenario.interval, placeholder: "0.8", id: 5),
-            .premium,
-            .messagesHeader
-        ]
-        for (index, message) in scenario.messages.enumerated() {
-            entries.append(.message(index: index, value: message))
-        }
-        entries.append(.save)
+        let entries: [ScenarioStudioEditorEntry] = [.parameters, .messages, .save]
 
         let controllerState = ItemListControllerState(
             presentationData: itemPresentationData,
@@ -403,6 +438,14 @@ private func scenarioStudioEditorController(context: AccountContext, scenario: S
     let controller = ScenarioStudioItemListController(context: context, state: state)
     editorController = controller
     controller.navigationPresentation = .modal
+    arguments.openParameters = { [weak controller] in
+        let page = scenarioStudioSubpageController(context: context, scenarioPromise: scenarioPromise, arguments: arguments, title: "Параметры", parameters: true)
+        controller?.push(page)
+    }
+    arguments.openMessages = { [weak controller] in
+        let page = scenarioStudioSubpageController(context: context, scenarioPromise: scenarioPromise, arguments: arguments, title: "Сообщения", parameters: false)
+        controller?.push(page)
+    }
     return controller
 }
 
