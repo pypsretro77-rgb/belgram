@@ -226,7 +226,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .parameters, .messages, .parametersHeader, .field, .premium, .premiumBadge:
+        case .parameters, .messages, .parametersHeader, .field, .premium, .premiumBadge, .user:
             return 0
         case .messagesHeader, .message:
             return 1
@@ -435,7 +435,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
         let current = arguments.current()
         var selectedChats = Set<EnginePeer.Id>()
         if let selectedUserId = current.selectedUserId {
-            selectedChats.insert(PeerId(namespace: Namespaces.Peer.CloudUser, id: selectedUserId))
+            selectedChats.insert(PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id(selectedUserId)))
         }
         let params = ContactMultiselectionControllerParams(
             context: context,
