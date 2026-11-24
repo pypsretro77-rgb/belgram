@@ -192,6 +192,7 @@ private final class ScenarioStudioEditorArguments {
     var addMessage: () -> Void = {}
     var openParameters: () -> Void = {}
     var openMessages: () -> Void = {}
+    var choosePremiumBadge: () -> Void = {}
 }
 
 private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
@@ -208,6 +209,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
     case parametersHeader
     case field(Field, title: String, value: String, placeholder: String, id: Int32)
     case premium
+    case premiumBadge
     case messagesHeader
     case message(index: Int, value: String)
     case save
@@ -237,6 +239,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
             case .interval: return 14
             }
         case .premium: return 15
+        case .premiumBadge: return 16
         case .messagesHeader: return 20
         case let .message(index, _): return 100 + Int32(index)
         case .save: return 10000
@@ -293,6 +296,17 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
                     updated.premium = value
                     arguments.update(updated)
                 }
+            )
+        case .premiumBadge:
+            let scenario = arguments.current()
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Значок Premium",
+                label: scenario.premiumBadge.isEmpty ? "Не выбран" : scenario.premiumBadge,
+                sectionId: self.section,
+                style: .blocks,
+                action: { arguments.choosePremiumBadge() }
             )
         case .messagesHeader:
             return ItemListSectionHeaderItem(presentationData: presentationData, text: "Сообщения по порядку", actionText: "Добавить", action: {
@@ -382,7 +396,8 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
                 .field(.contact, title: "Имя собеседника", value: scenario.contact, placeholder: "Имя", id: 2),
                 .field(.avatar, title: "Аватар", value: scenario.avatar, placeholder: "URL аватара", id: 4),
                 .field(.interval, title: "Задержка, сек.", value: scenario.interval, placeholder: "0.8", id: 5),
-                .premium
+                .premium,
+                .premiumBadge
             ]
         } else {
             entries = [.messagesHeader]
@@ -403,6 +418,26 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
     }
     let controller = ScenarioStudioItemListController(context: context, state: state)
     controller.navigationPresentation = .modal
+    arguments.choosePremiumBadge = { [weak controller] in
+        guard let controller else { return }
+        let alert = UIAlertController(title: "Значок Premium", message: "Выбери значок для отображения в профиле собеседника", preferredStyle: .alert)
+        let choices: [(String, String)] = [("Звезда", "★"), ("Искра", "✦"), ("Золотая звезда", "⭐"), ("Алмаз", "💎")]
+        for (title, symbol) in choices {
+            alert.addAction(UIAlertAction(title: "\(symbol)  \(title)", style: .default, handler: { _ in
+                var updated = arguments.current()
+                updated.premiumBadge = symbol
+                updated.premium = true
+                arguments.update(updated)
+            }))
+        }
+        alert.addAction(UIAlertAction(title: "Убрать значок", style: .destructive, handler: { _ in
+            var updated = arguments.current()
+            updated.premium = false
+            arguments.update(updated)
+        }))
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        controller.present(alert, animated: true)
+    }
     return controller
 }
 
