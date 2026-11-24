@@ -799,14 +799,33 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
 
     private func addMessage(_ text: String, outgoing: Bool) {
         let isGift = text.contains("/soft ") && text.contains("t.me/nft/")
+        let backgroundName = text.split(whereSeparator: { $0.isWhitespace }).first(where: { $0.hasPrefix("bg=") }).map { String($0.dropFirst(3)).lowercased() } ?? "default"
+        let giftBackgrounds: [String: UIColor] = [
+            "default": UIColor(red: 0.88, green: 0.83, blue: 0.98, alpha: 1.0),
+            "black": UIColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0),
+            "red": UIColor(red: 0.82, green: 0.25, blue: 0.29, alpha: 1.0),
+            "orange": UIColor(red: 0.96, green: 0.53, blue: 0.20, alpha: 1.0),
+            "yellow": UIColor(red: 0.96, green: 0.82, blue: 0.28, alpha: 1.0),
+            "green": UIColor(red: 0.27, green: 0.66, blue: 0.43, alpha: 1.0),
+            "cyan": UIColor(red: 0.24, green: 0.70, blue: 0.76, alpha: 1.0),
+            "blue": UIColor(red: 0.29, green: 0.48, blue: 0.84, alpha: 1.0),
+            "purple": UIColor(red: 0.57, green: 0.38, blue: 0.78, alpha: 1.0),
+            "pink": UIColor(red: 0.91, green: 0.48, blue: 0.68, alpha: 1.0)
+        ]
+        let giftColor = giftBackgrounds[backgroundName] ?? giftBackgrounds["default"]!
+        let isDarkGiftBackground = backgroundName == "black" || backgroundName == "blue" || backgroundName == "purple"
         let bubble = UIView()
         bubble.backgroundColor = isGift
-            ? UIColor(red: 0.88, green: 0.83, blue: 0.98, alpha: 1.0)
+            ? giftColor
             : (outgoing ? UIColor(red: 0.78, green: 0.94, blue: 0.77, alpha: 1.0) : .white)
         bubble.layer.cornerRadius = 13.0
         let label = UILabel()
-        label.text = isGift ? "🎁  Коллекционный подарок\n" + text.replacingOccurrences(of: "/soft ", with: "") : text
-        label.textColor = UIColor(red: 0.12, green: 0.15, blue: 0.17, alpha: 1.0)
+        let giftText = text
+            .replacingOccurrences(of: "/soft ", with: "")
+            .replacingOccurrences(of: "bg=\\(backgroundName)", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        label.text = isGift ? "DEMO · 🎁  Коллекционный подарок\n" + giftText : text
+        label.textColor = isGift && isDarkGiftBackground ? .white : UIColor(red: 0.12, green: 0.15, blue: 0.17, alpha: 1.0)
         label.font = UIFont.systemFont(ofSize: 16.0)
         label.numberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
