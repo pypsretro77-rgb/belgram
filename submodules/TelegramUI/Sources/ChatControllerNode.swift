@@ -216,7 +216,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .parameters, .messages, .parametersHeader, .field, .premium:
+        case .parameters, .messages, .parametersHeader, .field, .premium, .premiumBadge:
             return 0
         case .messagesHeader, .message:
             return 1
