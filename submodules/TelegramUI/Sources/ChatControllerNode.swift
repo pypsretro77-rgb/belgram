@@ -77,6 +77,8 @@ import RichTextEditorMediaView
 import InstantPageUI
 import ItemListUI
 import ChatRichTextEditorComposer
+import EmojiStatusSelectionComponent
+import EntityKeyboard
 
 private enum ScenarioStudioModel {
     fileprivate struct Scenario: Codable, Equatable {
@@ -87,13 +89,14 @@ private enum ScenarioStudioModel {
         var interval: String
         var premium: Bool
         var premiumBadge: String
+        var premiumBadgeFileId: Int64?
         var messages: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case name, contact, username, avatar, interval, premium, premiumBadge, messages
+            case name, contact, username, avatar, interval, premium, premiumBadge, premiumBadgeFileId, messages
         }
 
-        init(name: String, contact: String, avatar: String, interval: String, messages: [String], username: String = "@username", premium: Bool = false, premiumBadge: String = "★") {
+        init(name: String, contact: String, avatar: String, interval: String, messages: [String], username: String = "@username", premium: Bool = false, premiumBadge: String = "★", premiumBadgeFileId: Int64? = nil) {
             self.name = name
             self.contact = contact
             self.username = username
@@ -101,6 +104,7 @@ private enum ScenarioStudioModel {
             self.interval = interval
             self.premium = premium
             self.premiumBadge = premiumBadge
+            self.premiumBadgeFileId = premiumBadgeFileId
             self.messages = messages
         }
 
@@ -113,6 +117,7 @@ private enum ScenarioStudioModel {
             self.interval = try c.decodeIfPresent(String.self, forKey: .interval) ?? "0.8"
             self.premium = try c.decodeIfPresent(Bool.self, forKey: .premium) ?? false
             self.premiumBadge = try c.decodeIfPresent(String.self, forKey: .premiumBadge) ?? "★"
+            self.premiumBadgeFileId = try c.decodeIfPresent(Int64.self, forKey: .premiumBadgeFileId)
             self.messages = try c.decodeIfPresent([String].self, forKey: .messages) ?? []
         }
     }
@@ -420,23 +425,43 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
     controller.navigationPresentation = .modal
     arguments.choosePremiumBadge = { [weak controller] in
         guard let controller else { return }
-        let alert = UIAlertController(title: "Значок Premium", message: "Выбери значок для отображения в профиле собеседника", preferredStyle: .alert)
-        let choices: [(String, String)] = [("Звезда", "★"), ("Искра", "✦"), ("Золотая звезда", "⭐"), ("Алмаз", "💎")]
-        for (title, symbol) in choices {
-            alert.addAction(UIAlertAction(title: "\(symbol)  \(title)", style: .default, handler: { _ in
-                var updated = arguments.current()
-                updated.premiumBadge = symbol
-                updated.premium = true
-                arguments.update(updated)
-            }))
+
+        let scenario = arguments.current()
+        var selectedItems = Set<MediaId>()
+        if let fileId = scenario.premiumBadgeFileId {
+            selectedItems.insert(MediaId(namespace: Namespaces.Media.CloudFile, id: fileId))
         }
-        alert.addAction(UIAlertAction(title: "Убрать значок", style: .destructive, handler: { _ in
-            var updated = arguments.current()
-            updated.premium = false
-            arguments.update(updated)
-        }))
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel, handler: nil))
-        controller.present(alert, animated: true)
+
+        let emojiContent = EmojiPagerContentComponent.emojiInputData(
+            context: context,
+            animationCache: context.animationCache,
+            animationRenderer: context.animationRenderer,
+            isStandalone: false,
+            subject: .status,
+            hasTrending: false,
+            topReactionItems: [],
+            areUnicodeEmojiEnabled: false,
+            areCustomEmojiEnabled: true,
+            chatPeerId: context.account.peerId,
+            selectedItems: selectedItems,
+            topStatusTitle: "Выбрать значок"
+        )
+
+        let picker = EmojiStatusSelectionController(
+            context: context,
+            mode: .customStatusSelection({ file, _ in
+                var updated = arguments.current()
+                updated.premiumBadgeFileId = file?.fileId.id
+                updated.premiumBadge = file?.customEmojiAlt ?? ""
+                updated.premium = file != nil
+                arguments.update(updated)
+            }),
+            sourceView: controller.view,
+            emojiContent: emojiContent,
+            currentSelection: scenario.premiumBadgeFileId,
+            destinationItemView: { nil }
+        )
+        controller.present(picker, in: .window(.root))
     }
     return controller
 }
