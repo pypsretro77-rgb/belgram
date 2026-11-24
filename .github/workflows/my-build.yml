@@ -103,6 +103,7 @@ jobs:
 
       - name: Save Bazel cache
         if: always()
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: ~/telegram-bazel-cache
