@@ -435,7 +435,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
             updated.premium = false
             arguments.update(updated)
         }))
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel, handler: nil))
         controller.present(alert, animated: true)
     }
     return controller
