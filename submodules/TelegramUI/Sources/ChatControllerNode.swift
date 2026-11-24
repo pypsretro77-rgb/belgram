@@ -798,7 +798,7 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
     }
 
     private func addMessage(_ text: String, outgoing: Bool) {
-        let isGift = text.contains("/soft ") && text.contains("t.me/nft/")
+        let isGift = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("/soft ")
         let backgroundName = text.split(whereSeparator: { $0.isWhitespace }).first(where: { $0.hasPrefix("bg=") }).map { String($0.dropFirst(3)).lowercased() } ?? "default"
         let giftBackgrounds: [String: UIColor] = [
             "default": UIColor(red: 0.88, green: 0.83, blue: 0.98, alpha: 1.0),
