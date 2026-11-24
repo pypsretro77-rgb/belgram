@@ -821,9 +821,9 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
         bubble.layer.cornerRadius = 13.0
         let label = UILabel()
         let giftText = text
-            .replacingOccurrences(of: "/soft ", with: "")
-            .replacingOccurrences(of: "bg=\\(backgroundName)", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace })
+            .filter { $0 != "/soft" && !$0.hasPrefix("bg=") }
+            .joined(separator: " ")
         label.text = isGift ? "DEMO · 🎁  Коллекционный подарок\n" + giftText : text
         label.textColor = isGift && isDarkGiftBackground ? .white : UIColor(red: 0.12, green: 0.15, blue: 0.17, alpha: 1.0)
         label.font = UIFont.systemFont(ofSize: 16.0)
