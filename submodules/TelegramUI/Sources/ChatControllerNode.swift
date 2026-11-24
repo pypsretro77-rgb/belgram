@@ -214,7 +214,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
     case parametersHeader
     case field(Field, title: String, value: String, placeholder: String, id: Int32)
     case premium
-    case premiumBadge
+    case premiumBadge(value: String)
     case messagesHeader
     case message(index: Int, value: String)
     case save
@@ -302,13 +302,12 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
                     arguments.update(updated)
                 }
             )
-        case .premiumBadge:
-            let scenario = arguments.current()
+        case let .premiumBadge(value):
             return ItemListDisclosureItem(
                 presentationData: presentationData,
                 systemStyle: .glass,
                 title: "Значок Premium",
-                label: scenario.premiumBadge.isEmpty ? "Не выбран" : scenario.premiumBadge,
+                label: value,
                 sectionId: self.section,
                 style: .blocks,
                 action: { arguments.choosePremiumBadge() }
@@ -402,7 +401,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
                 .field(.avatar, title: "Аватар", value: scenario.avatar, placeholder: "URL аватара", id: 4),
                 .field(.interval, title: "Задержка, сек.", value: scenario.interval, placeholder: "0.8", id: 5),
                 .premium,
-                .premiumBadge
+                .premiumBadge(value: scenario.premiumBadge.isEmpty ? "Не выбран" : scenario.premiumBadge)
             ]
         } else {
             entries = [.messagesHeader]
