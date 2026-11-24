@@ -458,7 +458,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
                 return
             }
             var updated = arguments.current()
-            updated.selectedUserId = peerId.id
+            updated.selectedUserId = peerId.id._internalGetInt64Value()
             let peer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId))
             |> deliverOnMainQueue
             let _ = peer.startStandalone(next: { enginePeer in
