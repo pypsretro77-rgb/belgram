@@ -90,13 +90,14 @@ private enum ScenarioStudioModel {
         var premium: Bool
         var premiumBadge: String
         var premiumBadgeFileId: Int64?
+        var selectedUserId: Int64?
         var messages: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case name, contact, username, avatar, interval, premium, premiumBadge, premiumBadgeFileId, messages
+            case name, contact, username, avatar, interval, premium, premiumBadge, premiumBadgeFileId, selectedUserId, messages
         }
 
-        init(name: String, contact: String, avatar: String, interval: String, messages: [String], username: String = "@username", premium: Bool = false, premiumBadge: String = "★", premiumBadgeFileId: Int64? = nil) {
+        init(name: String, contact: String, avatar: String, interval: String, messages: [String], username: String = "@username", premium: Bool = false, premiumBadge: String = "★", premiumBadgeFileId: Int64? = nil, selectedUserId: Int64? = nil) {
             self.name = name
             self.contact = contact
             self.username = username
@@ -105,6 +106,7 @@ private enum ScenarioStudioModel {
             self.premium = premium
             self.premiumBadge = premiumBadge
             self.premiumBadgeFileId = premiumBadgeFileId
+            self.selectedUserId = selectedUserId
             self.messages = messages
         }
 
@@ -118,6 +120,7 @@ private enum ScenarioStudioModel {
             self.premium = try c.decodeIfPresent(Bool.self, forKey: .premium) ?? false
             self.premiumBadge = try c.decodeIfPresent(String.self, forKey: .premiumBadge) ?? "★"
             self.premiumBadgeFileId = try c.decodeIfPresent(Int64.self, forKey: .premiumBadgeFileId)
+            self.selectedUserId = try c.decodeIfPresent(Int64.self, forKey: .selectedUserId)
             self.messages = try c.decodeIfPresent([String].self, forKey: .messages) ?? []
         }
     }
@@ -198,6 +201,7 @@ private final class ScenarioStudioEditorArguments {
     var openParameters: () -> Void = {}
     var openMessages: () -> Void = {}
     var choosePremiumBadge: () -> Void = {}
+    var chooseContact: () -> Void = {}
 }
 
 private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
@@ -215,6 +219,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
     case field(Field, title: String, value: String, placeholder: String, id: Int32)
     case premium
     case premiumBadge(value: String)
+    case user(value: String)
     case messagesHeader
     case message(index: Int, value: String)
     case save
@@ -245,6 +250,7 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
             }
         case .premium: return 15
         case .premiumBadge: return 16
+        case .user: return 17
         case .messagesHeader: return 20
         case let .message(index, _): return 100 + Int32(index)
         case .save: return 10000
@@ -302,6 +308,8 @@ private enum ScenarioStudioEditorEntry: ItemListNodeEntry {
                     arguments.update(updated)
                 }
             )
+        case let .user(value):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Юзер", label: value, sectionId: self.section, style: .blocks, action: { arguments.chooseContact() })
         case let .premiumBadge(value):
             return ItemListDisclosureItem(
                 presentationData: presentationData,
@@ -397,7 +405,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
         if parameters {
             entries = [
                 .parametersHeader,
-                .field(.contact, title: "Имя собеседника", value: scenario.contact, placeholder: "Имя", id: 2),
+                .user(value: scenario.contact.isEmpty ? "Выбрать пользователя" : scenario.contact),
                 .field(.avatar, title: "Аватар", value: scenario.avatar, placeholder: "URL аватара", id: 4),
                 .field(.interval, title: "Задержка, сек.", value: scenario.interval, placeholder: "0.8", id: 5),
                 .premium,
@@ -422,6 +430,49 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
     }
     let controller = ScenarioStudioItemListController(context: context, state: state)
     controller.navigationPresentation = .modal
+    arguments.chooseContact = { [weak controller] in
+        guard let controller else { return }
+        let current = arguments.current()
+        var selectedChats = Set<EnginePeer.Id>()
+        if let selectedUserId = current.selectedUserId {
+            selectedChats.insert(EnginePeer.Id(PeerId(namespace: Namespaces.Peer.CloudUser, id: selectedUserId)))
+        }
+        let params = ContactMultiselectionControllerParams(
+            context: context,
+            title: "Выбрать пользователя",
+            mode: .chatSelection(ContactMultiselectionControllerMode.ChatSelection(
+                title: "Выбрать пользователя",
+                searchPlaceholder: "Поиск",
+                selectedChats: selectedChats,
+                additionalCategories: nil,
+                chatListFilters: nil,
+                onlyUsers: true
+            )),
+            limit: 1
+        )
+        let picker = ContactMultiselectionControllerImpl(params)
+        picker.result.startStandalone(next: { result in
+            guard case let .result(peerIds, _) = result,
+                  let selected = peerIds.first,
+                  case let .peer(peerId) = selected else {
+                return
+            }
+            var updated = arguments.current()
+            updated.selectedUserId = peerId.id
+            let peer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId))
+            |> deliverOnMainQueue
+            let _ = peer.startStandalone(next: { enginePeer in
+                guard let enginePeer else { return }
+                updated.contact = enginePeer.displayTitle(
+                    strings: context.sharedContext.currentPresentationData.with { $0 }.strings,
+                    displayOrder: context.sharedContext.currentPresentationData.with { $0 }.nameDisplayOrder
+                )
+                arguments.update(updated)
+            })
+            picker.dismiss()
+        })
+        controller.present(picker, in: .window(.root))
+    }
     arguments.choosePremiumBadge = { [weak controller] in
         guard let controller else { return }
 
