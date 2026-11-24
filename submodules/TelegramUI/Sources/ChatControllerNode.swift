@@ -451,7 +451,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
             limit: 1
         )
         let picker = ContactMultiselectionControllerImpl(params)
-        picker.result.startStandalone(next: { result in
+        let _ = picker.result.startStandalone(next: { result in
             guard case let .result(peerIds, _) = result,
                   let selected = peerIds.first,
                   case let .peer(peerId) = selected else {
