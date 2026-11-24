@@ -449,10 +449,15 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
 
         let picker = EmojiStatusSelectionController(
             context: context,
-            mode: .customStatusSelection({ file, _ in
+            mode: .customStatusSelection(completion: { file, _ in
                 var updated = arguments.current()
                 updated.premiumBadgeFileId = file?.fileId.id
-                updated.premiumBadge = file?.customEmojiAlt ?? ""
+                updated.premiumBadge = file?.attributes.compactMap { attribute -> String? in
+                    if case let .CustomEmoji(_, _, alt, _) = attribute {
+                        return alt
+                    }
+                    return nil
+                }.first ?? ""
                 updated.premium = file != nil
                 arguments.update(updated)
             }),
