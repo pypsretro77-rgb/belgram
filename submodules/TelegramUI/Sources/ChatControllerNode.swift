@@ -435,7 +435,7 @@ private func scenarioStudioSubpageController(context: AccountContext, scenarioPr
         let current = arguments.current()
         var selectedChats = Set<EnginePeer.Id>()
         if let selectedUserId = current.selectedUserId {
-            selectedChats.insert(EnginePeer.Id(PeerId(namespace: Namespaces.Peer.CloudUser, id: selectedUserId)))
+            selectedChats.insert(PeerId(namespace: Namespaces.Peer.CloudUser, id: selectedUserId))
         }
         let params = ContactMultiselectionControllerParams(
             context: context,
