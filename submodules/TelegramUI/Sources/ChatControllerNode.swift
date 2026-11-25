@@ -798,8 +798,17 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
     }
 
     private func addMessage(_ text: String, outgoing: Bool) {
-        let isGift = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("/soft ")
-        let backgroundName = text.split(whereSeparator: { $0.isWhitespace }).first(where: { $0.hasPrefix("bg=") }).map { String($0.dropFirst(3)).lowercased() } ?? "default"
+        let commandParts = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        // Supported demo syntax: /soft <userId> random nft bg=<background>
+        let isGift = commandParts.count >= 4
+            && commandParts[0].lowercased() == "/soft"
+            && Int64(commandParts[1]) != nil
+            && commandParts[2].lowercased() == "random"
+            && commandParts[3].lowercased() == "nft"
+        let backgroundToken = isGift
+            ? commandParts.dropFirst(4).first(where: { $0.lowercased().hasPrefix("bg=") })
+            : nil
+        let backgroundName = backgroundToken.map { String($0.dropFirst(3)).lowercased() } ?? "default"
         let giftBackgrounds: [String: UIColor] = [
             "default": UIColor(red: 0.88, green: 0.83, blue: 0.98, alpha: 1.0),
             "black": UIColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0),
@@ -820,11 +829,8 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
             : (outgoing ? UIColor(red: 0.78, green: 0.94, blue: 0.77, alpha: 1.0) : .white)
         bubble.layer.cornerRadius = 13.0
         let label = UILabel()
-        let giftText = text
-            .split(whereSeparator: { $0.isWhitespace })
-            .filter { $0 != "/soft" && !$0.hasPrefix("bg=") }
-            .joined(separator: " ")
-        label.text = isGift ? "DEMO · 🎁  Коллекционный подарок\n" + giftText : text
+        let giftText = isGift ? "ID: " + commandParts[1] : text
+        label.text = isGift ? "DEMO · 🎁  Случайный коллекционный подарок\n" + giftText : text
         label.textColor = isGift && isDarkGiftBackground ? .white : UIColor(red: 0.12, green: 0.15, blue: 0.17, alpha: 1.0)
         label.font = UIFont.systemFont(ofSize: 16.0)
         label.numberOfLines = 0
