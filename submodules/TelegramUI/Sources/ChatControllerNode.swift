@@ -716,7 +716,7 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
         self.composer.translatesAutoresizingMaskIntoConstraints = false
         self.composer.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.97, alpha: 1.0)
         self.addSubview(self.composer)
-        self.input.placeholder = "Сообщение"
+        self.input.placeholder = "/soft ID random nft bg=black"
         self.input.borderStyle = .roundedRect
         self.input.backgroundColor = .white
         self.input.font = UIFont.systemFont(ofSize: 16.0)
@@ -829,7 +829,7 @@ private final class ScenarioChatPreview: UIView, UITextFieldDelegate {
             : (outgoing ? UIColor(red: 0.78, green: 0.94, blue: 0.77, alpha: 1.0) : .white)
         bubble.layer.cornerRadius = 13.0
         let label = UILabel()
-        let giftText = isGift ? "ID: " + commandParts[1] : text
+        let giftText = isGift ? "ID: " + commandParts[1] + "\nФон: " + backgroundName : text
         label.text = isGift ? "DEMO · 🎁  Случайный коллекционный подарок\n" + giftText : text
         label.textColor = isGift && isDarkGiftBackground ? .white : UIColor(red: 0.12, green: 0.15, blue: 0.17, alpha: 1.0)
         label.font = UIFont.systemFont(ofSize: 16.0)
