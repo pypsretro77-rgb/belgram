@@ -1023,8 +1023,19 @@ extension ChatControllerImpl {
                         return url.pathComponents[nftIndex + 1]
                     }()
 
-                    let isRandomCommand = commandParts.count == 3 && commandParts[1] == "random"
-                    let requestedPeerId = isRandomCommand ? Int64(String(commandParts[2])) : nil
+                    // Keep the original /soft random ID command and add
+                    // /soft ID random gift [bg=<color>] for a local DEMO preview.
+                    let isLegacyRandomCommand = commandParts.count == 3 && commandParts[1].lowercased() == "random"
+                    let isBackgroundRandomCommand = commandParts.count >= 4
+                        && commandParts[2].lowercased() == "random"
+                        && commandParts[3].lowercased() == "gift"
+                    let isRandomCommand = isLegacyRandomCommand || isBackgroundRandomCommand
+                    let requestedPeerId = isBackgroundRandomCommand
+                        ? Int64(String(commandParts[1]))
+                        : (isLegacyRandomCommand ? Int64(String(commandParts[2])) : nil)
+                    let requestedBackground = isBackgroundRandomCommand
+                        ? commandParts.dropFirst(4).first(where: { $0.lowercased().hasPrefix("bg=") }).map { String($0.dropFirst(3)).lowercased() }
+                        : nil
                     guard let peerId = strongSelf.chatLocation.peerId,
                           peerId.namespace == Namespaces.Peer.CloudUser,
                           peerId != strongSelf.context.account.peerId,
@@ -1034,7 +1045,7 @@ extension ChatControllerImpl {
                                 context: strongSelf.context,
                                 updatedPresentationData: strongSelf.updatedPresentationData,
                                 title: nil,
-                                text: "Формат: /soft https://t.me/nft/InstantRamen-213507 или /soft random ID текущего собеседника",
+                                text: "Формат: /soft https://t.me/nft/InstantRamen-213507, /soft random ID или /soft ID random gift bg=black (локальный DEMO)",
                                 actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
                             ),
                             in: .window(.root)
@@ -1177,13 +1188,64 @@ extension ChatControllerImpl {
                                 return nil
                             }
 
-                            guard let selectedGift = regularGifts.randomElement() else {
+                            // Match the requested color against the actual Telegram gift
+                            // background metadata (edge + center colors). Never silently
+                            // substitute a different background when the requested one is absent.
+                            let filteredGifts: [StarGift.Gift]
+                            if let requestedBackground, !requestedBackground.isEmpty, requestedBackground != "default" {
+                                func colorFamily(_ gift: StarGift.Gift) -> String? {
+                                    guard let background = gift.background else {
+                                        return nil
+                                    }
+                                    let edge = UInt32(bitPattern: background.edgeColor)
+                                    let center = UInt32(bitPattern: background.centerColor)
+                                    let red = (Double((edge >> 16) & 0xff) + Double((center >> 16) & 0xff)) / 510.0
+                                    let green = (Double((edge >> 8) & 0xff) + Double((center >> 8) & 0xff)) / 510.0
+                                    let blue = (Double(edge & 0xff) + Double(center & 0xff)) / 510.0
+                                    let brightness = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+                                    if brightness < 0.20 { return "black" }
+                                    if brightness > 0.90 { return "white" }
+
+                                    let maximum = max(red, green, blue)
+                                    let minimum = min(red, green, blue)
+                                    let delta = maximum - minimum
+                                    if delta < 0.08 { return brightness < 0.45 ? "black" : "white" }
+                                    var hue: Double
+                                    if maximum == red {
+                                        hue = 60.0 * ((green - blue) / delta).truncatingRemainder(dividingBy: 6.0)
+                                    } else if maximum == green {
+                                        hue = 60.0 * (((blue - red) / delta) + 2.0)
+                                    } else {
+                                        hue = 60.0 * (((red - green) / delta) + 4.0)
+                                    }
+                                    if hue < 0.0 { hue += 360.0 }
+                                    switch hue {
+                                    case ..<15.0, 345.0...360.0: return "red"
+                                    case 15.0..<45.0: return "orange"
+                                    case 45.0..<70.0: return "yellow"
+                                    case 70.0..<165.0: return "green"
+                                    case 165.0..<200.0: return "cyan"
+                                    case 200.0..<255.0: return "blue"
+                                    case 255.0..<300.0: return "purple"
+                                    default: return "pink"
+                                    }
+                                }
+                                filteredGifts = regularGifts.filter { colorFamily($0) == requestedBackground }
+                            } else if let requestedBackground {
+                                filteredGifts = regularGifts
+                            } else {
+                                filteredGifts = regularGifts
+                            }
+
+                            guard let selectedGift = filteredGifts.randomElement() else {
                                 strongSelf.present(
                                     textAlertController(
                                         context: strongSelf.context,
                                         updatedPresentationData: strongSelf.updatedPresentationData,
                                         title: nil,
-                                        text: "Общий каталог подарков Telegram пока не загружен или пуст. Повтори команду позже.",
+                                        text: requestedBackground == nil || requestedBackground == "default"
+                                            ? "Общий каталог подарков Telegram пока не загружен или пуст. Повтори команду позже."
+                                            : "В каталоге нет доступного подарка с фоном «\(requestedBackground!)». Попробуй другой bg= цвет.",
                                         actions: [TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_OK, action: {})]
                                     ),
                                     in: .window(.root)
